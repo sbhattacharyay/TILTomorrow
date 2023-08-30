@@ -51,13 +51,13 @@ from functions.token_preparation import categorizer, clean_token_rows
 
 ## Define and create relevant directories
 # Define directory in which CENTER-TBI data is stored
-dir_CENTER_TBI = '../../center_tbi/CENTER-TBI'
+dir_CENTER_TBI = '/home/sb2406/rds/hpc-work/CENTER-TBI'
 
 # Define subdirectory in which formatted TIL values are stored
 form_TIL_dir = os.path.join(dir_CENTER_TBI,'FormattedTIL')
 
 # Create directory for storing tokens for each partition
-tokens_dir = '../tokens'
+tokens_dir = '/home/sb2406/rds/hpc-work/tokens'
 os.makedirs(tokens_dir,exist_ok=True)
 
 ## Load fundamental information for variable tokenisation
