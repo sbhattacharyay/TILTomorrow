@@ -798,9 +798,9 @@ def main():
         cp.dump(curr_vocab, open(os.path.join(fold_dir,'TILTomorrow_token_dictionary.pkl'), "wb" ))
         
         # Convert token set to indices
-        cleaned_study_tokens_df['VocabIndex'] = [curr_vocab.lookup_indices(cleaned_study_tokens_df.TOKENS[curr_row].split(' ')) for curr_row in tqdm(range(cleaned_study_tokens_df.shape[0]),desc='Converting study tokens to indices for fold '+str(curr_fold))]
+        cleaned_study_tokens_df['VocabIndex'] = [curr_vocab.lookup_indices(cleaned_study_tokens_df.TOKENS[curr_row].split(' ')) for curr_row in tqdm(range(cleaned_study_tokens_df.shape[0]),desc='Converting study tokens to indices for repeat '+str(curr_repeat)+' fold '+str(curr_fold))]
         cleaned_study_tokens_df = cleaned_study_tokens_df.drop(columns='TOKENS')
-        cleaned_study_tokens_df['VocabPhysImpressionIndex'] = [curr_vocab.lookup_indices(cleaned_study_tokens_df.PHYSIMPRESSIONTOKENS[curr_row].split(' ')) for curr_row in tqdm(range(cleaned_study_tokens_df.shape[0]),desc='Converting study physician impressions tokens to indices for fold '+str(curr_fold))]
+        cleaned_study_tokens_df['VocabPhysImpressionIndex'] = [curr_vocab.lookup_indices(cleaned_study_tokens_df.PHYSIMPRESSIONTOKENS[curr_row].split(' ')) for curr_row in tqdm(range(cleaned_study_tokens_df.shape[0]),desc='Converting study physician impressions tokens to indices for repeat '+str(curr_repeat)+' fold '+str(curr_fold))]
         cleaned_study_tokens_df = cleaned_study_tokens_df.drop(columns=['PHYSIMPRESSIONTOKENS'])
 
         # Reorder token columns
