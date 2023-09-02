@@ -12,6 +12,9 @@
 # V. Format time-intervalled variables in CENTER-TBI
 # VI. Format dated single-event variables in CENTER-TBI
 # VII. Format timestamped single-event variables in CENTER-TBI
+# VIII. Partition patient ICU stays into time windows
+# IX. Tokenise optional time variables
+# X. Load and prepare formatted categorical tokens
 
 ### I. Initialisation
 # Fundamental libraries
@@ -37,7 +40,7 @@ warnings.filterwarnings(action="ignore")
 from pandas.api.types import is_integer_dtype, is_float_dtype, is_object_dtype
 
 # Custom methods
-from functions.token_preparation import categorizer
+from functions.token_preparation import categorizer, clean_token_rows
 
 ## Define and create relevant directories
 # Define directory in which CENTER-TBI data is stored
@@ -57,17 +60,23 @@ study_included_set = pd.read_csv(os.path.join(form_TIL_dir,'study_included_set.c
 study_included_set['ICUAdmTimeStamp'] = pd.to_datetime(study_included_set['ICUAdmTimeStamp'],format = '%Y-%m-%d %H:%M:%S' )
 study_included_set['ICUDischTimeStamp'] = pd.to_datetime(study_included_set['ICUDischTimeStamp'],format = '%Y-%m-%d %H:%M:%S' )
 study_included_set['EndTimeStamp'] = pd.to_datetime(study_included_set['EndTimeStamp'],format = '%Y-%m-%d %H:%M:%S' )
+study_included_set['WLSTDecisionTimeStamp'] = pd.to_datetime(study_included_set['WLSTDecisionTimeStamp'],format = '%Y-%m-%d %H:%M:%S' )
 
 # Extract dates from ICU admission and study end timestamps
 study_included_set['ICUAdmDate'] = study_included_set['ICUAdmTimeStamp'].dt.date
 study_included_set['EndDate'] = study_included_set['EndTimeStamp'].dt.date
+study_included_set['WLSTDecisionDate'] = study_included_set['WLSTDecisionTimeStamp'].dt.date
 
 # Extract times from ICU admission and study end timestamps
 study_included_set['ICUAdmTime'] = study_included_set['ICUAdmTimeStamp'].dt.time
 study_included_set['EndTime'] = study_included_set['EndTimeStamp'].dt.time
+study_included_set['WLSTDecisionTime'] = study_included_set['WLSTDecisionTimeStamp'].dt.time
 
 # Load formatted TIL values
 formatted_TIL_values = pd.read_csv(os.path.join(form_TIL_dir,'formatted_TIL_values.csv'))
+
+# Format date timestamp in formatted TIL dataframe properly
+formatted_TIL_values['TILDate'] = pd.to_datetime(formatted_TIL_values['TILDate'],format = '%Y-%m-%d' )
 
 ### II. Format baseline variables in CENTER-TBI
 # Load demographic, history, injury characeristic baseline variables
@@ -2564,7 +2573,7 @@ categorical_MR_tokens = categorical_MR_imaging_variables[['GUPI','TimeStamp']+np
 image_json_extracts = pd.read_csv(os.path.join(dir_CENTER_TBI,'Imaging','compiled_image_json_extracts.csv'),na_values = ["NA","NaN"," ", "","-"])
 
 # Filter study set patients and exclude ER images
-image_json_extracts = image_json_extracts[(image_json_extracts.GUPI.isin(cv_splits.GUPI))&~((image_json_extracts.CTPatientLocation=='ED')|(image_json_extracts.MRIPatientLocation=='ED'))].dropna(axis=1,how='all').reset_index(drop=True).drop(columns=['ExperimentDate','ExperimentTime','ExperimentId','Timepoint','CTPatientLocation']).dropna(axis=1,how='all').reset_index(drop=True)
+image_json_extracts = image_json_extracts[(image_json_extracts.GUPI.isin(cv_splits.GUPI))&~((image_json_extracts.CTPatientLocation=='ED')|(image_json_extracts.MRIPatientLocation=='ED'))].dropna(axis=1,how='all').reset_index(drop=True).drop(columns=['ExperimentDate','ExperimentTime','ExperimentId','Timepoint','CTPatientLocation','MRIPatientLocation']).dropna(axis=1,how='all').reset_index(drop=True)
 
 # Convert timestamp to proper format
 image_json_extracts['JSONExperimentTimestamp'] = pd.to_datetime(image_json_extracts['JSONExperimentTimestamp'],format = '%Y-%m-%d %H:%M:%S' )
@@ -2693,3 +2702,282 @@ numeric_timestamp_values = numeric_timestamp_values.merge(study_included_set[['G
 numeric_timestamp_values = numeric_timestamp_values[numeric_timestamp_values.TimeStamp <= numeric_timestamp_values.EndTimeStamp].drop(columns='EndTimeStamp').reset_index(drop=True)
 numeric_timestamp_values = numeric_timestamp_values.sort_values(by=['GUPI','TimeStamp','VARIABLE']).reset_index(drop=True)
 numeric_timestamp_values.to_pickle(os.path.join(form_TIL_dir,'numeric_timestamp_event_variables.pkl'))
+
+### VIII. Partition patient ICU stays into time windows
+## Calculate the first date for each patient
+# Calculate "default date" of each row
+formatted_TIL_values['DefaultDate'] = (formatted_TIL_values.TILDate - pd.to_timedelta(formatted_TIL_values.TILTimepoint,unit='d'))
+
+# Collapse to calculate one "default date" per patient
+study_dates = formatted_TIL_values.groupby('GUPI',as_index=False).DefaultDate.aggregate(lambda x: x.mode()[0])
+
+# Get first date of ICU stay
+study_dates['FirstDate'] = study_dates['DefaultDate'] + pd.to_timedelta(1,unit='d')
+
+## Get last date based on ICU discharge date or day before WLST decision date
+# Merge end date to default date dataframe
+study_dates = study_dates.merge(study_included_set[['GUPI','EndDate','EndTimeStamp']],how='left')
+
+## Create study windows
+# Define empty lists to store window information
+study_time_windows = []
+
+# Iterate through study patients and append window timestamps to list
+for i in tqdm(range(study_dates.shape[0]),'Partitioning dataset into study windows'):
+    
+    # Extract current patient information
+    curr_GUPI = study_dates.GUPI[i]
+    curr_FirstDate = study_dates.FirstDate[i]
+    curr_EndDate = study_dates.EndDate[i]
+    curr_EndTimeStamp = study_dates.EndTimeStamp[i]
+
+    # Create list of start and end timestamps based on dates of ICU stay
+    start_timestamps = pd.date_range(curr_FirstDate,curr_EndDate)
+    end_timestamps = [ts - datetime.timedelta(microseconds=1) for ts in start_timestamps[1:]]
+    end_timestamps.append(curr_EndTimeStamp+datetime.timedelta(microseconds=1))
+    
+    # Compile current patient information into a dataframe
+    GUPI_windows = pd.DataFrame({'GUPI':curr_GUPI,
+                                'TimeStampStart':start_timestamps,
+                                'TimeStampEnd':end_timestamps,
+                                'WindowIdx':[i+1 for i in range(len(start_timestamps))],
+                                'WindowTotal':len(start_timestamps)
+                                })
+    
+    # Append current GUPI dataframe to running compiled lists
+    study_time_windows.append(GUPI_windows)
+    
+# Concatenate lists of dataframes into single study window dataframe
+study_time_windows = pd.concat(study_time_windows,ignore_index=True)
+
+## Merge study outcomes to study window dataframe
+# First, merge WLSTDecisionDate (if available) onto TIL dataframe, and remove rows which occured after WLST decision
+filt_TIL_values = formatted_TIL_values.merge(study_included_set[['GUPI','WLSTDecisionDate']],how='left')
+filt_TIL_values = filt_TIL_values[filt_TIL_values.WLSTDecisionDate.isna()|(filt_TIL_values.TILDate<=filt_TIL_values.WLSTDecisionDate)].reset_index(drop=True)
+
+# Extract total TIL, high-TIL therapy and TILBasic outcomes from formatted TIL dataframe
+TIL_score_outcomes = filt_TIL_values[['GUPI','TILDate','TILTimepoint','TotalTIL','HighIntensityTherapy','TILBasic']].rename(columns={'TILTimepoint':'WindowIdx'})
+
+# Shift WindowIdx for next-day outcome and rename columns to reflect next-day outcome
+TIL_score_outcomes['WindowIdx'] = TIL_score_outcomes['WindowIdx'] - 1
+TIL_score_outcomes = TIL_score_outcomes.rename(columns=dict(zip(['TotalTIL','HighIntensityTherapy','TILBasic'],['Tomorrow'+n for n in ['TotalTIL','HighIntensityTherapy','TILBasic']])))
+
+# Extract outcomes pertaining to differences in TIL
+TIL_diff_outcomes = filt_TIL_values[['GUPI','TILDate','TILTimepoint','TimepointDiff','TotalTILDiff','SignTotalTILDiff']].rename(columns={'TILTimepoint':'WindowIdx'})
+
+# Filter to instances of consecutive-day differences
+TIL_diff_outcomes = TIL_diff_outcomes[TIL_diff_outcomes.TimepointDiff==1].drop(columns='TimepointDiff').reset_index(drop=True)
+
+# Shift WindowIdx for next-day outcome and rename columns to reflect next-day outcome
+TIL_diff_outcomes['WindowIdx'] = TIL_diff_outcomes['WindowIdx'] - 1
+TIL_diff_outcomes = TIL_diff_outcomes.rename(columns=dict(zip(['TotalTILDiff','SignTotalTILDiff'],['Tomorrow'+n for n in ['TotalTILDiff','SignTotalTILDiff']])))
+
+# Merge all outcome measures onto study window dataframe
+study_time_windows = study_time_windows.merge(TIL_score_outcomes.drop(columns='TILDate'),how='left').merge(TIL_diff_outcomes.drop(columns='TILDate'),how='left')
+
+## Save prepared study window dataframe
+# Sort study window dataframe properly
+study_time_windows = study_time_windows.sort_values(by=['GUPI','WindowIdx'],ignore_index=True)
+
+# Save study window dataframe
+study_time_windows.to_csv(os.path.join(form_TIL_dir,'study_window_timestamps_outcomes.csv'),index = False)
+
+# IX. Tokenise optional time variables
+## Add categorical token of `DayOfICUStay` to `study_time_windows` dataframe
+# Load study time windows dataframe
+study_time_windows = pd.read_csv(os.path.join(form_TIL_dir,'study_window_timestamps_outcomes.csv'))
+
+# Format study time window timestamps accordingly
+study_time_windows['TimeStampStart'] = pd.to_datetime(study_time_windows['TimeStampStart'],format = '%Y-%m-%d' )
+study_time_windows['TimeStampEnd'] = pd.to_datetime(study_time_windows['TimeStampEnd'],format = '%Y-%m-%d %H:%M:%S.%f' )
+
+# Add categorical token corresponding to day of ICU stay
+study_time_windows['DayOfICUStay'] = 'DayOfICUStay_'+categorizer(study_time_windows['WindowIdx'],threshold=float('inf')).fillna('NAN')
+
+# X. Load and prepare formatted categorical tokens
+## Categorical Baseline Variables
+# Load formatted dataframe
+categorical_baseline_variables = pd.read_pickle(os.path.join(form_TIL_dir,'categorical_baseline_variables.pkl'))
+categorical_baseline_variables['Token'] = categorical_baseline_variables.Token.str.strip()
+categorical_baseline_variables['PhysImpressionToken'] = categorical_baseline_variables.PhysImpressionToken.str.strip()
+
+# Merge dataframe with study windows to start tokens dataframe
+study_tokens_df = study_time_windows.merge(categorical_baseline_variables,how='left',on='GUPI').rename(columns={'Token':'TOKENS','PhysImpressionToken':'PHYSIMPRESSIONTOKENS'})
+
+## Categorical Discharge Variables
+# Load formatted dataframe
+categorical_discharge_variables = pd.read_pickle(os.path.join(form_TIL_dir,'categorical_discharge_variables.pkl')).rename(columns={'Token':'DischargeTokens'})
+categorical_discharge_variables['DischargeTokens'] = categorical_discharge_variables.DischargeTokens.str.strip()
+
+# Add last window index information to discharge variable dataframe
+categorical_discharge_variables = categorical_discharge_variables.merge(study_tokens_df[['GUPI','WindowTotal']].drop_duplicates().rename(columns={'WindowTotal':'WindowIdx'}),how='left',on='GUPI')
+
+# Merge discharge tokens onto study tokens dataframe
+study_tokens_df = study_tokens_df.merge(categorical_discharge_variables,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.DischargeTokens.isna()] = study_tokens_df.TOKENS[~study_tokens_df.DischargeTokens.isna()] + ' ' + study_tokens_df.DischargeTokens[~study_tokens_df.DischargeTokens.isna()]
+
+# Drop `DischargeTokens` column
+study_tokens_df = study_tokens_df.drop(columns ='DischargeTokens')
+
+## Categorical Date-Intervalled Variables
+# Load formatted dataframe
+categorical_date_interval_variables = pd.read_pickle(os.path.join(form_TIL_dir,'categorical_date_interval_variables.pkl')).rename(columns={'Token':'DateIntervalTokens'})
+categorical_date_interval_variables['DateIntervalTokens'] = categorical_date_interval_variables.DateIntervalTokens.str.strip()
+categorical_date_interval_variables['EndToken'] = categorical_date_interval_variables.EndToken.str.strip()
+
+# Merge window timestamp starts and ends to formatted variable dataframe
+categorical_date_interval_variables = categorical_date_interval_variables.merge(study_tokens_df[['GUPI','TimeStampStart','TimeStampEnd','WindowIdx']],how='left',on='GUPI')
+
+# First, isolate events which finish before the date ICU admission and combine end tokens
+baseline_categorical_date_interval_variables = categorical_date_interval_variables[categorical_date_interval_variables.WindowIdx == 1]
+baseline_categorical_date_interval_variables = baseline_categorical_date_interval_variables[baseline_categorical_date_interval_variables.StopDate.dt.date < baseline_categorical_date_interval_variables.TimeStampStart.dt.date].reset_index(drop=True)
+baseline_categorical_date_interval_variables.DateIntervalTokens[~baseline_categorical_date_interval_variables.EndToken.isna()] = baseline_categorical_date_interval_variables.DateIntervalTokens[~baseline_categorical_date_interval_variables.EndToken.isna()] + ' ' + baseline_categorical_date_interval_variables.EndToken[~baseline_categorical_date_interval_variables.EndToken.isna()]
+baseline_categorical_date_interval_variables = baseline_categorical_date_interval_variables.drop(columns=['StartDate','StopDate','EndToken','TimeStampStart','TimeStampEnd'])
+baseline_categorical_date_interval_variables = baseline_categorical_date_interval_variables.groupby(['GUPI','WindowIdx'],as_index=False).DateIntervalTokens.aggregate(lambda x: ' '.join(x))
+
+# Merge event tokens which finish before the date of ICU admission onto study tokens dataframe
+study_tokens_df = study_tokens_df.merge(baseline_categorical_date_interval_variables,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.DateIntervalTokens.isna()] = study_tokens_df.TOKENS[~study_tokens_df.DateIntervalTokens.isna()] + ' ' + study_tokens_df.DateIntervalTokens[~study_tokens_df.DateIntervalTokens.isna()]
+study_tokens_df = study_tokens_df.drop(columns ='DateIntervalTokens')
+
+# Then, isolate the events that fit within the given window
+categorical_date_interval_variables = categorical_date_interval_variables[(categorical_date_interval_variables.StartDate.dt.date <= categorical_date_interval_variables.TimeStampEnd.dt.date)&(categorical_date_interval_variables.StopDate.dt.date >= categorical_date_interval_variables.TimeStampStart.dt.date)].reset_index(drop=True)
+
+# For each of these isolated events, find the maximum window index, to which the end token will be added
+end_token_categorical_date_interval_variables = categorical_date_interval_variables.groupby(['GUPI','StartDate','StopDate','DateIntervalTokens','EndToken'],as_index=False).WindowIdx.max().drop(columns=['StartDate','StopDate','DateIntervalTokens']).groupby(['GUPI','WindowIdx'],as_index=False).EndToken.aggregate(lambda x: ' '.join(x))
+categorical_date_interval_variables = categorical_date_interval_variables.drop(columns='EndToken')
+
+# Merge end-of-interval event tokens onto study tokens dataframe
+study_tokens_df = study_tokens_df.merge(end_token_categorical_date_interval_variables,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.EndToken.isna()] = study_tokens_df.TOKENS[~study_tokens_df.EndToken.isna()] + ' ' + study_tokens_df.EndToken[~study_tokens_df.EndToken.isna()]
+study_tokens_df = study_tokens_df.drop(columns ='EndToken')
+
+# Merge date-interval event tokens onto study tokens dataframe
+categorical_date_interval_variables = categorical_date_interval_variables.groupby(['GUPI','WindowIdx'],as_index=False).DateIntervalTokens.aggregate(lambda x: ' '.join(x))
+study_tokens_df = study_tokens_df.merge(categorical_date_interval_variables,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.DateIntervalTokens.isna()] = study_tokens_df.TOKENS[~study_tokens_df.DateIntervalTokens.isna()] + ' ' + study_tokens_df.DateIntervalTokens[~study_tokens_df.DateIntervalTokens.isna()]
+study_tokens_df = study_tokens_df.drop(columns ='DateIntervalTokens')
+
+## Categorical Time-Intervalled Variables
+# Load formatted dataframe
+categorical_time_interval_variables = pd.read_pickle(os.path.join(form_TIL_dir,'categorical_time_interval_variables.pkl')).rename(columns={'Token':'TimeIntervalTokens'})
+categorical_time_interval_variables['TimeIntervalTokens'] = categorical_time_interval_variables.TimeIntervalTokens.str.strip()
+categorical_time_interval_variables['PhysImpressionToken'] = categorical_time_interval_variables.PhysImpressionToken.str.strip()
+categorical_time_interval_variables['EndToken'] = categorical_time_interval_variables.EndToken.str.strip()
+
+# Merge window timestamp starts and ends to formatted variable dataframe
+categorical_time_interval_variables = categorical_time_interval_variables.merge(study_tokens_df[['GUPI','TimeStampStart','TimeStampEnd','WindowIdx']],how='left',on='GUPI')
+
+# First, isolate events which finish before the ICU admission timestamp and combine end tokens
+baseline_categorical_time_interval_variables = categorical_time_interval_variables[categorical_time_interval_variables.WindowIdx == 1]
+baseline_categorical_time_interval_variables = baseline_categorical_time_interval_variables[baseline_categorical_time_interval_variables.StopTimeStamp < baseline_categorical_time_interval_variables.TimeStampStart].reset_index(drop=True)
+baseline_categorical_time_interval_variables.TimeIntervalTokens[~baseline_categorical_time_interval_variables.EndToken.isna()] = baseline_categorical_time_interval_variables.TimeIntervalTokens[~baseline_categorical_time_interval_variables.EndToken.isna()] + ' ' + baseline_categorical_time_interval_variables.EndToken[~baseline_categorical_time_interval_variables.EndToken.isna()]
+baseline_categorical_time_interval_variables = baseline_categorical_time_interval_variables.drop(columns=['StartTimeStamp','StopTimeStamp','EndToken','TimeStampStart','TimeStampEnd'])
+baseline_categorical_time_interval_variables = baseline_categorical_time_interval_variables.groupby(['GUPI','WindowIdx'],as_index=False).TimeIntervalTokens.aggregate(lambda x: ' '.join(x)).merge(baseline_categorical_time_interval_variables[~baseline_categorical_time_interval_variables.PhysImpressionToken.isna()].groupby(['GUPI','WindowIdx'],as_index=False).PhysImpressionToken.aggregate(lambda x: ' '.join(x)),how='left')
+
+# Merge event tokens which finish before the ICU admission timestamp onto study tokens dataframe
+study_tokens_df = study_tokens_df.merge(baseline_categorical_time_interval_variables,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.TimeIntervalTokens.isna()] = study_tokens_df.TOKENS[~study_tokens_df.TimeIntervalTokens.isna()] + ' ' + study_tokens_df.TimeIntervalTokens[~study_tokens_df.TimeIntervalTokens.isna()]
+study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] = study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] + ' ' + study_tokens_df.PhysImpressionToken[~study_tokens_df.PhysImpressionToken.isna()]
+study_tokens_df = study_tokens_df.drop(columns =['TimeIntervalTokens','PhysImpressionToken'])
+
+# Then, isolate the events that fit within the given window
+categorical_time_interval_variables = categorical_time_interval_variables[(categorical_time_interval_variables.StartTimeStamp <= categorical_time_interval_variables.TimeStampEnd)&(categorical_time_interval_variables.StopTimeStamp >= categorical_time_interval_variables.TimeStampStart)].reset_index(drop=True)
+
+# For each of these isolated events, find the maximum window index, to which the end token will be added
+end_token_categorical_time_interval_variables = categorical_time_interval_variables.groupby(['GUPI','StartTimeStamp','StopTimeStamp','TimeIntervalTokens','EndToken'],as_index=False).WindowIdx.max().drop(columns=['StartTimeStamp','StopTimeStamp','TimeIntervalTokens']).groupby(['GUPI','WindowIdx'],as_index=False).EndToken.aggregate(lambda x:' '.join(x))
+categorical_time_interval_variables = categorical_time_interval_variables.drop(columns='EndToken')
+
+# Merge end-of-interval event tokens onto study tokens dataframe
+study_tokens_df = study_tokens_df.merge(end_token_categorical_time_interval_variables,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.EndToken.isna()] = study_tokens_df.TOKENS[~study_tokens_df.EndToken.isna()] + ' ' + study_tokens_df.EndToken[~study_tokens_df.EndToken.isna()]
+study_tokens_df = study_tokens_df.drop(columns ='EndToken')
+
+# Merge time-interval event tokens onto study tokens dataframe
+collapsed_time_interval_variables = categorical_time_interval_variables[~categorical_time_interval_variables.TimeIntervalTokens.isna()].groupby(['GUPI','WindowIdx'],as_index=False).TimeIntervalTokens.aggregate(lambda x: ' '.join(x))
+collapsed_time_interval_physician_impressions = categorical_time_interval_variables[~categorical_time_interval_variables.PhysImpressionToken.isna()].groupby(['GUPI','WindowIdx'],as_index=False).PhysImpressionToken.aggregate(lambda x: ' '.join(x))
+study_tokens_df = study_tokens_df.merge(collapsed_time_interval_variables,how='left',on=['GUPI','WindowIdx']).merge(collapsed_time_interval_physician_impressions,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.TimeIntervalTokens.isna()] = study_tokens_df.TOKENS[~study_tokens_df.TimeIntervalTokens.isna()] + ' ' + study_tokens_df.TimeIntervalTokens[~study_tokens_df.TimeIntervalTokens.isna()]
+study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] = study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] + ' ' + study_tokens_df.PhysImpressionToken[~study_tokens_df.PhysImpressionToken.isna()]
+study_tokens_df = study_tokens_df.drop(columns =['TimeIntervalTokens','PhysImpressionToken'])
+
+## Categorical Dated Single-Event Variables in CENTER-TBI
+# Load formatted dataframe
+categorical_date_event_variables = pd.read_pickle(os.path.join(form_TIL_dir,'categorical_date_event_variables.pkl')).rename(columns={'Token':'DateEventTokens'})
+categorical_date_event_variables['DateEventTokens'] = categorical_date_event_variables.DateEventTokens.str.strip()
+categorical_date_event_variables['PhysImpressionToken'] = categorical_date_event_variables.PhysImpressionToken.str.strip()
+
+# Merge window timestamp starts and ends to formatted variable dataframe
+categorical_date_event_variables = categorical_date_event_variables.merge(study_tokens_df[['GUPI','TimeStampStart','TimeStampEnd','WindowIdx']],how='left',on='GUPI')
+
+# First, isolate events which finish before the date ICU admission and combine end tokens
+baseline_categorical_date_event_variables = categorical_date_event_variables[categorical_date_event_variables.WindowIdx == 1]
+baseline_categorical_date_event_variables = baseline_categorical_date_event_variables[baseline_categorical_date_event_variables.Date.dt.date < baseline_categorical_date_event_variables.TimeStampStart.dt.date].reset_index(drop=True)
+baseline_categorical_date_event_variables = baseline_categorical_date_event_variables.drop(columns=['Date','TimeStampStart','TimeStampEnd'])
+baseline_categorical_date_event_variables = baseline_categorical_date_event_variables.groupby(['GUPI','WindowIdx'],as_index=False).DateEventTokens.aggregate(lambda x: ' '.join(x)).merge(baseline_categorical_date_event_variables[~baseline_categorical_date_event_variables.PhysImpressionToken.isna()].groupby(['GUPI','WindowIdx'],as_index=False).PhysImpressionToken.aggregate(lambda x: ' '.join(x)),how='left')
+
+# Merge event tokens which finish before the date of ICU admission onto study tokens dataframe
+study_tokens_df = study_tokens_df.merge(baseline_categorical_date_event_variables,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.DateEventTokens.isna()] = study_tokens_df.TOKENS[~study_tokens_df.DateEventTokens.isna()] + ' ' + study_tokens_df.DateEventTokens[~study_tokens_df.DateEventTokens.isna()]
+study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] = study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] + ' ' + study_tokens_df.PhysImpressionToken[~study_tokens_df.PhysImpressionToken.isna()]
+study_tokens_df = study_tokens_df.drop(columns =['DateEventTokens','PhysImpressionToken'])
+
+# Then, isolate the events that fit within the given window
+categorical_date_event_variables = categorical_date_event_variables[(categorical_date_event_variables.Date.dt.date <= categorical_date_event_variables.TimeStampEnd.dt.date)&(categorical_date_event_variables.Date.dt.date >= categorical_date_event_variables.TimeStampStart.dt.date)].reset_index(drop=True)
+
+# Merge dated event tokens onto study tokens dataframe
+collapsed_date_event_variables = categorical_date_event_variables[~categorical_date_event_variables.DateEventTokens.isna()].groupby(['GUPI','WindowIdx'],as_index=False).DateEventTokens.aggregate(lambda x: ' '.join(x))
+collapsed_date_event_physician_impressions = categorical_date_event_variables[~categorical_date_event_variables.PhysImpressionToken.isna()].groupby(['GUPI','WindowIdx'],as_index=False).PhysImpressionToken.aggregate(lambda x: ' '.join(x))
+study_tokens_df = study_tokens_df.merge(collapsed_date_event_variables,how='left',on=['GUPI','WindowIdx']).merge(collapsed_date_event_physician_impressions,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.DateEventTokens.isna()] = study_tokens_df.TOKENS[~study_tokens_df.DateEventTokens.isna()] + ' ' + study_tokens_df.DateEventTokens[~study_tokens_df.DateEventTokens.isna()]
+study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] = study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] + ' ' + study_tokens_df.PhysImpressionToken[~study_tokens_df.PhysImpressionToken.isna()]
+study_tokens_df = study_tokens_df.drop(columns =['DateEventTokens','PhysImpressionToken'])
+
+## Categorical Timestamped Single-Event Variables in CENTER-TBI
+# Load formatted dataframe
+categorical_timestamp_event_variables = pd.read_pickle(os.path.join(form_TIL_dir,'categorical_timestamp_event_variables.pkl')).rename(columns={'Token':'TimeStampEventTokens'})
+categorical_timestamp_event_variables['TimeStampEventTokens'] = categorical_timestamp_event_variables.TimeStampEventTokens.str.strip()
+categorical_timestamp_event_variables['PhysImpressionToken'] = categorical_timestamp_event_variables.PhysImpressionToken.str.strip()
+
+# Merge window timestamp starts and ends to formatted variable dataframe
+categorical_timestamp_event_variables = categorical_timestamp_event_variables.merge(study_tokens_df[['GUPI','TimeStampStart','TimeStampEnd','WindowIdx']],how='left',on='GUPI')
+
+# First, isolate events which finish before the ICU admission timestamp and combine end tokens
+baseline_categorical_timestamp_event_variables = categorical_timestamp_event_variables[categorical_timestamp_event_variables.WindowIdx == 1]
+baseline_categorical_timestamp_event_variables = baseline_categorical_timestamp_event_variables[baseline_categorical_timestamp_event_variables.TimeStamp < baseline_categorical_timestamp_event_variables.TimeStampStart].reset_index(drop=True)
+baseline_categorical_timestamp_event_variables = baseline_categorical_timestamp_event_variables.drop(columns=['TimeStamp','TimeStampStart','TimeStampEnd'])
+baseline_categorical_timestamp_event_variables = baseline_categorical_timestamp_event_variables.groupby(['GUPI','WindowIdx'],as_index=False).TimeStampEventTokens.aggregate(lambda x: ' '.join(x)).merge(baseline_categorical_timestamp_event_variables[~baseline_categorical_timestamp_event_variables.PhysImpressionToken.isna()].groupby(['GUPI','WindowIdx'],as_index=False).PhysImpressionToken.aggregate(lambda x: ' '.join(x)),how='left')
+
+# Merge event tokens which finish before the date of ICU admission onto study tokens dataframe
+study_tokens_df = study_tokens_df.merge(baseline_categorical_timestamp_event_variables,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.TimeStampEventTokens.isna()] = study_tokens_df.TOKENS[~study_tokens_df.TimeStampEventTokens.isna()] + ' ' + study_tokens_df.TimeStampEventTokens[~study_tokens_df.TimeStampEventTokens.isna()]
+study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] = study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] + ' ' + study_tokens_df.PhysImpressionToken[~study_tokens_df.PhysImpressionToken.isna()]
+study_tokens_df = study_tokens_df.drop(columns =['TimeStampEventTokens','PhysImpressionToken'])
+
+# Then, isolate the events that fit within the given window
+categorical_timestamp_event_variables = categorical_timestamp_event_variables[(categorical_timestamp_event_variables.TimeStamp <= categorical_timestamp_event_variables.TimeStampEnd)&(categorical_timestamp_event_variables.TimeStamp >= categorical_timestamp_event_variables.TimeStampStart)].reset_index(drop=True)
+
+# Merge timestamped event tokens onto study tokens dataframe
+collapsed_timestamp_event_variables = categorical_timestamp_event_variables[~categorical_timestamp_event_variables.TimeStampEventTokens.isna()].groupby(['GUPI','WindowIdx'],as_index=False).TimeStampEventTokens.aggregate(lambda x: ' '.join(x))
+collapsed_timestamp_event_physician_impressions = categorical_timestamp_event_variables[~categorical_timestamp_event_variables.PhysImpressionToken.isna()].groupby(['GUPI','WindowIdx'],as_index=False).PhysImpressionToken.aggregate(lambda x: ' '.join(x))
+study_tokens_df = study_tokens_df.merge(collapsed_timestamp_event_variables,how='left',on=['GUPI','WindowIdx']).merge(collapsed_timestamp_event_physician_impressions,how='left',on=['GUPI','WindowIdx'])
+study_tokens_df.TOKENS[~study_tokens_df.TimeStampEventTokens.isna()] = study_tokens_df.TOKENS[~study_tokens_df.TimeStampEventTokens.isna()] + ' ' + study_tokens_df.TimeStampEventTokens[~study_tokens_df.TimeStampEventTokens.isna()]
+study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] = study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] + ' ' + study_tokens_df.PhysImpressionToken[~study_tokens_df.PhysImpressionToken.isna()]
+study_tokens_df = study_tokens_df.drop(columns =['TimeStampEventTokens','PhysImpressionToken'])
+
+## Add day-of-ICU-stay token to compiled tokens list
+# Concatenate day-of-ICU-stay token with all other categorical tokens
+study_tokens_df.TOKENS = study_tokens_df.TOKENS + ' ' + study_tokens_df.DayOfICUStay
+
+# Remove day-of-ICU-stay token column
+study_tokens_df = study_tokens_df.drop(columns='DayOfICUStay')
+
+# Reorder token columns
+study_tokens_df.insert(5,'TOKENS',study_tokens_df.pop('TOKENS'))
+study_tokens_df.insert(6,'PHYSIMPRESSIONTOKENS',study_tokens_df.pop('PHYSIMPRESSIONTOKENS'))
+
+## Iterate through and clean categorical variables and save
+cleaned_study_tokens_df = clean_token_rows(study_tokens_df,True,'Cleaning categorical variable dataframe').sort_values(by=['GUPI','WindowIdx']).reset_index(drop=True)
+
+# Save cleaned categorical tokens-windows to formatted variables directory
+cleaned_study_tokens_df.to_pickle(os.path.join(form_TIL_dir,'categorical_tokens_in_study_windows.pkl'))
