@@ -230,8 +230,8 @@ class TILTomorrow_model(pl.LightningModule):
                             
         elif self.outcome_name == 'TomorrowHighIntensityTherapy': 
             
-            curr_val_probs = torch.cat([F.sigmoid(yhat)],dim=0).flatten().cpu().numpy()
-            missing_outcome_mask = torch.isnan(curr_label_list)
+            curr_val_probs = torch.cat([F.sigmoid(yhat)],dim=0).detach().flatten().cpu().numpy()
+            missing_outcome_mask = torch.isnan(curr_label_list.detach())
             val_loss = F.binary_cross_entropy_with_logits(yhat[~missing_outcome_mask,:].flatten(), curr_label_list[~missing_outcome_mask].type_as(yhat))
             val_metric = roc_auc_score(curr_val_labels[~missing_outcome_mask],curr_val_probs[~missing_outcome_mask])
 
