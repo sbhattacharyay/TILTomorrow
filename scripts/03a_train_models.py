@@ -7,7 +7,7 @@
 ### Contents:
 # I. Initialisation
 # II. Create grid of training combinations
-# III. Train APM_deep model based on provided hyperparameter row index
+# III. Train dynamic TILTomorrow model based on provided hyperparameter row index
 
 ### I. Initialisation
 # Fundamental libraries
@@ -70,7 +70,7 @@ VERSION = 'v1-0'
 tokens_dir = '/home/sb2406/rds/hpc-work/tokens'
 
 # Initialise model output directory based on version code
-model_dir = os.path.join('/home/sb2406/rds/hpc-work/TILTomorrow_model_outputs',VERSION)
+model_dir = os.path.join('/home/sb2406/rds/hpc-work','TILTomorrow_model_outputs',VERSION)
 os.makedirs(model_dir,exist_ok=True)
 
 ## Load fundamental information for model training
@@ -100,8 +100,8 @@ if not os.path.exists(os.path.join(model_dir,'tuning_grid.csv')):
                          'PHYS_IMPRESSION_TOKENS':[True],
                          'EMBED_DROPOUT':[.2],
                          'RNN_LAYERS':[1],
-                         'NUM_EPOCHS':[30],
-                         'ES_PATIENCE':[10],
+                         'NUM_EPOCHS':[200],
+                         'ES_PATIENCE':[30],
                          'IMBALANCE_CORRECTION':['weights'],
                          'OUTCOME_LABEL':['TomorrowTILBasic','TomorrowHighIntensityTherapy'],
                          'LEARNING_RATE':[0.001],
@@ -130,9 +130,9 @@ else:
     tuning_grid = pd.read_csv(os.path.join(model_dir,'tuning_grid.csv'))
 
 ## Manually determine repeats and folds to use for current training session
-tuning_grid = tuning_grid[tuning_grid.REPEAT.isin([1])&tuning_grid.FOLD.isin([1])].reset_index(drop=True)
+tuning_grid = tuning_grid[tuning_grid.REPEAT.isin([1])].reset_index(drop=True)
 
-### III. Train dynamic APM model based on provided hyperparameter row index
+### III. Train dynamic TILTomorrow model based on provided hyperparameter row index
 # Argument-induced training functions
 def main(array_task_id):
     
