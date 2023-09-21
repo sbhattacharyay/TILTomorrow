@@ -99,14 +99,25 @@ perf_file_info_df = pd.DataFrame({'FILE':perf_files,
 # Separate ORC and calibration file dataframes
 orc_file_info_df = perf_file_info_df[perf_file_info_df.METRIC == 'ORCs'].reset_index(drop=True)
 auc_file_info_df = perf_file_info_df[perf_file_info_df.METRIC == 'AUCs'].reset_index(drop=True)
+somers_d_file_info_df = perf_file_info_df[perf_file_info_df.METRIC == 'Somers_D'].reset_index(drop=True)
 thresh_calibration_file_info_df = perf_file_info_df[(perf_file_info_df.METRIC == 'calibration_metrics')&(perf_file_info_df.OUTCOME_LABEL == 'TomorrowTILBasic')].reset_index(drop=True)
 binary_calibration_file_info_df = perf_file_info_df[(perf_file_info_df.METRIC == 'calibration_metrics')&(perf_file_info_df.OUTCOME_LABEL == 'TomorrowHighIntensityTherapy')].reset_index(drop=True)
 
 # Load validation set discrimination and calibration performance dataframes
 TILBasic_compiled_val_orc = pd.concat([pd.read_pickle(f) for f in tqdm(orc_file_info_df.FILE,'Load and compile validation set ORC values')],ignore_index=True)
 highTIL_compiled_val_auc = pd.concat([pd.read_pickle(f) for f in tqdm(auc_file_info_df.FILE,'Load and compile validation set AUC values')],ignore_index=True)
+compiled_val_somers_d = pd.concat([pd.read_pickle(f) for f in tqdm(somers_d_file_info_df.FILE,'Load and compile validation set Somers D values')],ignore_index=True)
 TILBasic_compiled_val_calibration = pd.concat([pd.read_pickle(f) for f in tqdm(thresh_calibration_file_info_df.FILE,'Load and compile validation set threshold-level calibration metrics')],ignore_index=True)
 highTIL_compiled_val_calibration = pd.concat([pd.read_pickle(f) for f in tqdm(binary_calibration_file_info_df.FILE,'Load and compile validation set binary calibration metrics')],ignore_index=True)
+
+# Concatenate dataframes
+compiled_val_bootstrapping_metrics = pd.concat([TILBasic_compiled_val_orc,highTIL_compiled_val_auc,compiled_val_somers_d,TILBasic_compiled_val_calibration,highTIL_compiled_val_calibration],ignore_index=True)
+
+# Save compiled validation set performance metrics
+compiled_val_bootstrapping_metrics.to_pickle(os.path.join(model_perf_dir,'val_bootstrapping_uncalibrated_metrics.pkl'))
+
+# Iterate through performance metric files and delete
+_ = [os.remove(f) for f in tqdm(perf_file_info_df.FILE,'Clearing validation bootstrapping metric files after collection')]
 
 ### III. Dropout configurations based on validation set calibration and discrimination information
 ## Identify configurations with calibration slope 1 in confidence interval
