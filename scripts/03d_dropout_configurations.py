@@ -52,6 +52,8 @@ from statsmodels.nonparametric.smoothers_lowess import lowess
 # Custom methods
 from functions.analysis import prepare_df, calc_ORC, calc_AUC, calc_Somers_D, calc_thresh_calibration, calc_binary_calibration
 
+import hiplot as hip
+
 ## Define parameters for model training
 # Set version code
 VERSION = 'v1-0'
@@ -61,6 +63,9 @@ NUM_CORES = multiprocessing.cpu_count()
 
 # Set number of resamples for bootstrapping-based testing set performance
 NUM_RESAMP = 1000
+
+# Window indices at which to calculate performance metrics
+PERF_WINDOW_INDICES = [1,2,3,4,5,6,9,13,20]
 
 ## Define and create relevant directories
 # Define model output directory based on version code
@@ -124,7 +129,11 @@ highTIL_val_calibrated_TIs = highTIL_val_CI_calibration_slope[highTIL_val_CI_cal
 
 
 
+uncalib_TILBasic_val_set_ORCs = pd.read_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_val_uncalibrated_ORCs.csv'))
+uncalib_highTIL_val_set_AUCs = pd.read_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_AUCs.csv'))
 
+uncalib_TILBasic_val_set_thresh_calibration = pd.read_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_val_uncalibrated_calibration_metrics.csv'))
+uncalib_highTIL_val_set_calibration = pd.read_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_calibration_metrics.csv'))
 
 ave_uncalib_val_set_AUCs = uncalib_highTIL_val_set_AUCs.groupby(['TUNE_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'AUC'}).sort_values(by='AUC',ascending=False).reset_index(drop=True)
 highTIL_cream_of_crop = ave_uncalib_val_set_AUCs[ave_uncalib_val_set_AUCs.AUC>=0.85].reset_index(drop=True)
@@ -135,6 +144,119 @@ ave_uncalib_val_set_ORCs = uncalib_TILBasic_val_set_ORCs.groupby(['TUNE_IDX'],as
 TILBasic_cream_of_crop = ave_uncalib_val_set_ORCs[ave_uncalib_val_set_ORCs.ORC>=0.8].reset_index(drop=True)
 
 flupi = TILBasic_val_CI_calibration_slope[TILBasic_val_CI_calibration_slope.TUNE_IDX.isin(TILBasic_cream_of_crop.TUNE_IDX)&(TILBasic_val_CI_calibration_slope.THRESHOLD=='Average')].groupby(['TUNE_IDX'],as_index=False).CALIBRATED.sum().merge(TILBasic_cream_of_crop).sort_values(by='ORC',ascending=False).reset_index(drop=True)
+
+AUC_val_grid = tuning_grid[['TUNE_IDX','WINDOW_LIMIT','RNN_TYPE','LATENT_DIM','HIDDEN_DIM','MIN_BASE_TOKEN_REPRESENATION','MAX_TOKENS_PER_BASE_TOKEN']].drop_duplicates(ignore_index=True).merge(ave_uncalib_val_set_AUCs,how='right')
+ORC_val_grid = tuning_grid[['TUNE_IDX','WINDOW_LIMIT','RNN_TYPE','LATENT_DIM','HIDDEN_DIM','MIN_BASE_TOKEN_REPRESENATION','MAX_TOKENS_PER_BASE_TOKEN']].drop_duplicates(ignore_index=True).merge(ave_uncalib_val_set_ORCs,how='right')
+
+ave_uncalib_val_set_thresh_calibration = uncalib_TILBasic_val_set_thresh_calibration[(uncalib_TILBasic_val_set_thresh_calibration.THRESHOLD=='Average')&(uncalib_TILBasic_val_set_thresh_calibration.METRIC=='CALIB_SLOPE')].groupby(['TUNE_IDX','WINDOW_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'CALIB_SLOPE'})
+ave_uncalib_val_set_thresh_calibration['ERROR'] = (ave_uncalib_val_set_thresh_calibration.CALIB_SLOPE - 1).abs()
+ave_uncalib_val_set_thresh_calibration = ave_uncalib_val_set_thresh_calibration.groupby(['TUNE_IDX'],as_index=False).ERROR.mean().sort_values(by='ERROR',ascending=True).reset_index(drop=True)
+thresh_calibration_val_grid = tuning_grid[['TUNE_IDX','WINDOW_LIMIT','RNN_TYPE','LATENT_DIM','HIDDEN_DIM','MIN_BASE_TOKEN_REPRESENATION','MAX_TOKENS_PER_BASE_TOKEN']].drop_duplicates(ignore_index=True).merge(ave_uncalib_val_set_thresh_calibration,how='right')
+
+ave_uncalib_val_set_binary_calibration = uncalib_highTIL_val_set_calibration[(uncalib_highTIL_val_set_calibration.METRIC=='CALIB_SLOPE')].groupby(['TUNE_IDX','WINDOW_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'CALIB_SLOPE'})
+ave_uncalib_val_set_binary_calibration['ERROR'] = (ave_uncalib_val_set_binary_calibration.CALIB_SLOPE - 1).abs()
+ave_uncalib_val_set_binary_calibration = ave_uncalib_val_set_binary_calibration.groupby(['TUNE_IDX'],as_index=False).ERROR.mean().sort_values(by='ERROR',ascending=True).reset_index(drop=True)
+binary_calibration_val_grid = tuning_grid[['TUNE_IDX','WINDOW_LIMIT','RNN_TYPE','LATENT_DIM','HIDDEN_DIM','MIN_BASE_TOKEN_REPRESENATION','MAX_TOKENS_PER_BASE_TOKEN']].drop_duplicates(ignore_index=True).merge(ave_uncalib_val_set_binary_calibration,how='right')
+
+########### Facebook HiPlot
+holla = hip.Experiment.from_dataframe(AUC_val_grid)
+holla.colorby = 'AUC'
+holla.to_html('../TILTomorrow_model_performance/v1-0/AUC_hiplot.html')
+
+scholla = hip.Experiment.from_dataframe(ORC_val_grid)
+scholla.colorby = 'ORC'
+scholla.to_html('../TILTomorrow_model_performance/v1-0/ORC_hiplot.html')
+
+chupa = hip.Experiment.from_dataframe(thresh_calibration_val_grid)
+chupa.colorby = 'ERROR'
+chupa.to_html('../TILTomorrow_model_performance/v1-0/thresh_calibration_hiplot.html')
+
+scupa = hip.Experiment.from_dataframe(binary_calibration_val_grid)
+scupa.colorby = 'ERROR'
+scupa.to_html('../TILTomorrow_model_performance/v1-0/binary_calibration_hiplot.html')
+
+
+
+# Load compiled validation set outputs
+uncalib_TILBasic_test_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_test_uncalibrated_outputs.pkl'))
+uncalib_highTIL_test_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowHighIntensityTherapy_compiled_test_uncalibrated_outputs.pkl'))
+
+# Calculate intermediate values for TomorrowTILBasic validation set outputs
+prob_cols = [col for col in uncalib_TILBasic_test_outputs if col.startswith('Pr(TILBasic=')]
+logit_cols = [col for col in uncalib_TILBasic_test_outputs if col.startswith('z_TILBasic=')]
+prob_matrix = uncalib_TILBasic_test_outputs[prob_cols]
+prob_matrix.columns = list(range(prob_matrix.shape[1]))
+index_vector = np.array(list(range(prob_matrix.shape[1])), ndmin=2).T
+uncalib_TILBasic_test_outputs['ExpectedValue'] = np.matmul(prob_matrix.values,index_vector)
+uncalib_TILBasic_test_outputs['PredLabel'] = prob_matrix.idxmax(axis=1)
+
+# Calculate intermediate values for TomorrowHighIntensityTherapy validation set outputs
+uncalib_highTIL_test_outputs['ExpectedValue'] = uncalib_highTIL_test_outputs['Pr(HighTIL=1)']
+uncalib_highTIL_test_outputs['PredLabel'] = (uncalib_highTIL_test_outputs['Pr(HighTIL=1)'] >= 0.5).astype(int)
+
+# Prepare validation set output dataframes for performance calculation
+filt_TILBasic_test_outputs = prepare_df(uncalib_TILBasic_test_outputs,PERF_WINDOW_INDICES)
+filt_highTIL_test_outputs = prepare_df(uncalib_highTIL_test_outputs,PERF_WINDOW_INDICES)
+
+# Filter further to specific tuning indices
+filt_TILBasic_test_outputs = filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.TUNE_IDX.isin([277,171])].reset_index(drop=True)
+filt_highTIL_test_outputs = filt_highTIL_test_outputs[filt_highTIL_test_outputs.TUNE_IDX.isin([220,240,136])].reset_index(drop=True)
+
+bs_rs_GUPIs = [resample(filt_TILBasic_test_outputs.GUPI.unique(),replace=True,n_samples=filt_TILBasic_test_outputs.GUPI.nunique()) for _ in range(NUM_RESAMP)]
+bs_rs_GUPIs = [np.unique(curr_rs) for curr_rs in bs_rs_GUPIs]
+
+# Create Data Frame to store bootstrapping resamples 
+bs_resamples = pd.DataFrame({'RESAMPLE_IDX':[i+1 for i in range(NUM_RESAMP)],'GUPIs':bs_rs_GUPIs})
+
+ORCs = []
+AUCs = []
+TILBasic_SomersD = []
+highTIL_SomersD = []
+TILBasic_calibration = []
+highTIL_calibration = []
+
+for curr_rs_idx in tqdm(bs_resamples.RESAMPLE_IDX,'Testing set performance calculation'):
+    
+    # Extract current bootstrapping resample parameters
+    curr_GUPIs = bs_resamples.GUPIs[(bs_resamples.RESAMPLE_IDX==curr_rs_idx).idxmax()]
+    
+    curr_ORC = calc_ORC(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.GUPI.isin(curr_GUPIs)].reset_index(drop=True),PERF_WINDOW_INDICES,False)
+    curr_AUC = calc_AUC(filt_highTIL_test_outputs[filt_highTIL_test_outputs.GUPI.isin(curr_GUPIs)].reset_index(drop=True),PERF_WINDOW_INDICES,False)
+    curr_TILBasic_SomersD = calc_Somers_D(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.GUPI.isin(curr_GUPIs)].reset_index(drop=True),PERF_WINDOW_INDICES,False)
+    curr_highTIL_SomersD = calc_Somers_D(filt_highTIL_test_outputs[filt_highTIL_test_outputs.GUPI.isin(curr_GUPIs)].reset_index(drop=True),PERF_WINDOW_INDICES,False)
+    curr_TILBasic_calibration = calc_thresh_calibration(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.GUPI.isin(curr_GUPIs)].reset_index(drop=True),PERF_WINDOW_INDICES,False)
+    curr_highTIL_calibration = calc_binary_calibration(filt_highTIL_test_outputs[filt_highTIL_test_outputs.GUPI.isin(curr_GUPIs)].reset_index(drop=True),PERF_WINDOW_INDICES,False)
+
+    # Add macro-averages to threshold-level calibration metrics
+    macro_average_thresh_calibration = curr_TILBasic_calibration.groupby(['TUNE_IDX','WINDOW_IDX','METRIC'],as_index=False).VALUE.mean()
+    macro_average_thresh_calibration.insert(2,'THRESHOLD',['Average' for idx in range(macro_average_thresh_calibration.shape[0])])
+    curr_TILBasic_calibration = pd.concat([curr_TILBasic_calibration,macro_average_thresh_calibration],ignore_index=True).sort_values(by=['TUNE_IDX','WINDOW_IDX','THRESHOLD']).reset_index(drop=True)
+
+    ORCs.append(curr_ORC)
+    AUCs.append(curr_AUC)
+    TILBasic_SomersD.append(curr_TILBasic_SomersD)
+    highTIL_SomersD.append(curr_highTIL_SomersD)
+    TILBasic_calibration.append(curr_TILBasic_calibration)
+    highTIL_calibration.append(curr_highTIL_calibration)
+
+ORCs = pd.concat(ORCs,ignore_index=True)
+AUCs = pd.concat(AUCs,ignore_index=True)
+TILBasic_SomersD = pd.concat(TILBasic_SomersD,ignore_index=True)
+highTIL_SomersD = pd.concat(highTIL_SomersD,ignore_index=True)
+TILBasic_calibration = pd.concat(TILBasic_calibration,ignore_index=True)
+highTIL_calibration = pd.concat(highTIL_calibration,ignore_index=True)
+
+ORCs.to_csv('../TILTomorrow_model_performance/v1-0/test_set_TILBasic_ORCs.csv',index=False)
+AUCs.to_csv('../TILTomorrow_model_performance/v1-0/test_set_highTIL_AUCs.csv',index=False)
+TILBasic_SomersD.to_csv('../TILTomorrow_model_performance/v1-0/test_set_TILBasic_SomersD.csv',index=False)
+highTIL_SomersD.to_csv('../TILTomorrow_model_performance/v1-0/test_set_highTIL_SomersD.csv',index=False)
+TILBasic_calibration.to_csv('../TILTomorrow_model_performance/v1-0/test_set_TILBasic_calibration.csv',index=False)
+highTIL_calibration.to_csv('../TILTomorrow_model_performance/v1-0/test_set_highTIL_calibration.csv',index=False)
+
+
+
+
+
 
 ## Identify configurations that are significantly worse than the optimal tuning index
 # Load optimal tuning configurations for each window index based on validation set performance
