@@ -277,6 +277,7 @@ for curr_folder in tqdm(delete_folders,"Deleting directories corresponding to un
         shutil.rmtree(curr_folder)
     except:
         pass
+
 # ### V. Create bootstrapping resamples for calculating testing set performance
 # ## Load testing set predictions and optimal configurations
 # # Load the post-dropout tuning grid
