@@ -9,7 +9,7 @@
 # II. Compile and save bootstrapped validation set performance dataframes
 # III. Dropout configurations based on validation set calibration and discrimination information
 # IV. Delete folders of underperforming configurations
-# V. Create bootstrapping resamples for calculating testing set performance
+# V. Visualise hyperparameter optimisation results
 
 ### I. Initialisation
 # Fundamental libraries
@@ -44,6 +44,9 @@ warnings.filterwarnings(action="ignore")
 from sklearn.metrics import roc_auc_score
 from sklearn.utils import resample
 
+# HiPlot methods
+import hiplot as hip
+
 # StatsModel methods
 from statsmodels.discrete.discrete_model import Logit
 from statsmodels.tools.tools import add_constant
@@ -51,8 +54,6 @@ from statsmodels.nonparametric.smoothers_lowess import lowess
 
 # Custom methods
 from functions.analysis import prepare_df, calc_ORC, calc_AUC, calc_Somers_D, calc_thresh_calibration, calc_binary_calibration
-
-import hiplot as hip
 
 ## Define parameters for model training
 # Set version code
@@ -86,6 +87,7 @@ partitions = cv_splits[['REPEAT','FOLD']].drop_duplicates().reset_index(drop=Tru
 tuning_grid = pd.read_csv(os.path.join(model_dir,'tuning_grid.csv'))
 
 ### II. Compile and save bootstrapped validation set performance dataframes
+## Find and characterise all validation set performance files
 # Search for all performance files
 perf_files = []
 for path in Path(val_bs_dir).rglob('TomorrowTILBasic_val_*'):
@@ -108,6 +110,7 @@ somers_d_file_info_df = perf_file_info_df[perf_file_info_df.METRIC == 'Somers_D'
 thresh_calibration_file_info_df = perf_file_info_df[(perf_file_info_df.METRIC == 'calibration_metrics')&(perf_file_info_df.OUTCOME_LABEL == 'TomorrowTILBasic')].reset_index(drop=True)
 binary_calibration_file_info_df = perf_file_info_df[(perf_file_info_df.METRIC == 'calibration_metrics')&(perf_file_info_df.OUTCOME_LABEL == 'TomorrowHighIntensityTherapy')].reset_index(drop=True)
 
+## Load and compile validation set performance dataframes into single files
 # Load validation set discrimination and calibration performance dataframes
 TILBasic_compiled_val_orc = pd.concat([pd.read_pickle(f) for f in tqdm(orc_file_info_df.FILE,'Load and compile validation set ORC values')],ignore_index=True)
 highTIL_compiled_val_auc = pd.concat([pd.read_pickle(f) for f in tqdm(auc_file_info_df.FILE,'Load and compile validation set AUC values')],ignore_index=True)
@@ -121,6 +124,7 @@ compiled_val_bootstrapping_metrics = pd.concat([TILBasic_compiled_val_orc,highTI
 # Save compiled validation set performance metrics
 compiled_val_bootstrapping_metrics.to_pickle(os.path.join(model_perf_dir,'val_bootstrapping_uncalibrated_metrics.pkl'))
 
+## Delete individual files once compiled dataframe has been saved
 # Iterate through performance metric files and delete
 _ = [os.remove(f) for f in tqdm(perf_file_info_df.FILE,'Clearing validation bootstrapping metric files after collection')]
 
@@ -278,7 +282,70 @@ for curr_folder in tqdm(delete_folders,"Deleting directories corresponding to un
     except:
         pass
 
-# ### V. Create bootstrapping resamples for calculating testing set performance
+### V. Visualise hyperparameter optimisation results
+## Load validation set performance dataframes
+# TILBasic ORCs
+uncalib_TILBasic_val_set_ORCs = pd.read_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_val_uncalibrated_ORCs.csv'))
+
+# High-intensity TIL AUCs
+uncalib_highTIL_val_set_AUCs = pd.read_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_AUCs.csv'))
+
+# TILBasic calibration metrics
+uncalib_TILBasic_val_set_thresh_calibration = pd.read_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_val_uncalibrated_calibration_metrics.csv'))
+
+# High-intensity TIL calibration metrics
+uncalib_highTIL_val_set_calibration = pd.read_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_calibration_metrics.csv'))
+
+## Prepare validation set results
+# Calculate averaged TILBasic ORCs across window indices
+ave_uncalib_val_set_ORCs = uncalib_TILBasic_val_set_ORCs.groupby(['TUNE_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'ORC'}).sort_values(by='ORC',ascending=False).reset_index(drop=True)
+
+# Merge hyperparameter information to TILBasic ORC scores
+ORC_val_grid = tuning_grid[['TUNE_IDX','WINDOW_LIMIT','RNN_TYPE','LATENT_DIM','HIDDEN_DIM','MIN_BASE_TOKEN_REPRESENATION','MAX_TOKENS_PER_BASE_TOKEN']].drop_duplicates(ignore_index=True).merge(ave_uncalib_val_set_ORCs,how='right')
+
+# Calculate averaged highTIL AUCs across window indices
+ave_uncalib_val_set_AUCs = uncalib_highTIL_val_set_AUCs.groupby(['TUNE_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'AUC'}).sort_values(by='AUC',ascending=False).reset_index(drop=True)
+
+# Merge hyperparameter information to highTIL AUC scores
+AUC_val_grid = tuning_grid[['TUNE_IDX','WINDOW_LIMIT','RNN_TYPE','LATENT_DIM','HIDDEN_DIM','MIN_BASE_TOKEN_REPRESENATION','MAX_TOKENS_PER_BASE_TOKEN']].drop_duplicates(ignore_index=True).merge(ave_uncalib_val_set_AUCs,how='right')
+
+# Calculate averaged TILBasic calibration metrics across window indices
+ave_uncalib_val_set_thresh_calibration = uncalib_TILBasic_val_set_thresh_calibration[(uncalib_TILBasic_val_set_thresh_calibration.THRESHOLD=='Average')&(uncalib_TILBasic_val_set_thresh_calibration.METRIC=='CALIB_SLOPE')].groupby(['TUNE_IDX','WINDOW_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'CALIB_SLOPE'})
+ave_uncalib_val_set_thresh_calibration['ERROR'] = (ave_uncalib_val_set_thresh_calibration.CALIB_SLOPE - 1).abs()
+ave_uncalib_val_set_thresh_calibration = ave_uncalib_val_set_thresh_calibration.groupby(['TUNE_IDX'],as_index=False).ERROR.mean().sort_values(by='ERROR',ascending=True).reset_index(drop=True)
+
+# Merge hyperparameter information to TILBasic calibration metrics
+thresh_calibration_val_grid = tuning_grid[['TUNE_IDX','WINDOW_LIMIT','RNN_TYPE','LATENT_DIM','HIDDEN_DIM','MIN_BASE_TOKEN_REPRESENATION','MAX_TOKENS_PER_BASE_TOKEN']].drop_duplicates(ignore_index=True).merge(ave_uncalib_val_set_thresh_calibration,how='right')
+
+# Calculate averaged highTIL calibration metrics across window indices
+ave_uncalib_val_set_binary_calibration = uncalib_highTIL_val_set_calibration[(uncalib_highTIL_val_set_calibration.METRIC=='CALIB_SLOPE')].groupby(['TUNE_IDX','WINDOW_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'CALIB_SLOPE'})
+ave_uncalib_val_set_binary_calibration['ERROR'] = (ave_uncalib_val_set_binary_calibration.CALIB_SLOPE - 1).abs()
+ave_uncalib_val_set_binary_calibration = ave_uncalib_val_set_binary_calibration.groupby(['TUNE_IDX'],as_index=False).ERROR.mean().sort_values(by='ERROR',ascending=True).reset_index(drop=True)
+
+# Merge hyperparameter information to highTIL calibration metrics
+binary_calibration_val_grid = tuning_grid[['TUNE_IDX','WINDOW_LIMIT','RNN_TYPE','LATENT_DIM','HIDDEN_DIM','MIN_BASE_TOKEN_REPRESENATION','MAX_TOKENS_PER_BASE_TOKEN']].drop_duplicates(ignore_index=True).merge(ave_uncalib_val_set_binary_calibration,how='right')
+
+## Generate and save high-dimensional hyperparameter parallel plots
+# TILBasic ORC
+TILBasic_ORC_hiplot = hip.Experiment.from_dataframe(ORC_val_grid)
+TILBasic_ORC_hiplot.colorby = 'ORC'
+TILBasic_ORC_hiplot.to_html(os.path.join(model_perf_dir,'ORC_hiplot.html'))
+
+# TILBasic calibration metrics
+TILBasic_thresh_hiplot = hip.Experiment.from_dataframe(thresh_calibration_val_grid)
+TILBasic_thresh_hiplot.colorby = 'ERROR'
+TILBasic_thresh_hiplot.to_html(os.path.join(model_perf_dir,'thresh_calibration_hiplot.html'))
+
+# highTIL AUC
+highTIL_AUC_hiplot = hip.Experiment.from_dataframe(AUC_val_grid)
+highTIL_AUC_hiplot.colorby = 'AUC'
+highTIL_AUC_hiplot.to_html(os.path.join(model_perf_dir,'AUC_hiplot.html'))
+
+# highTIL calibration metrics
+highTIL_thresh_hiplot = hip.Experiment.from_dataframe(binary_calibration_val_grid)
+highTIL_thresh_hiplot.colorby = 'ERROR'
+highTIL_thresh_hiplot.to_html(os.path.join(model_perf_dir,'binary_calibration_hiplot.html'))
+
 # ## Load testing set predictions and optimal configurations
 # # Load the post-dropout tuning grid
 # filt_tuning_grid = pd.read_csv(os.path.join(model_dir,'post_dropout_tuning_grid.csv'))

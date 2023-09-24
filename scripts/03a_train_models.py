@@ -56,9 +56,7 @@ from tqdm import tqdm
 
 # Custom methods
 from classes.datasets import DYN_ALL_VARIABLE_SET
-# from classes.calibration import TemperatureScaling, VectorScaling
 from functions.model_building import collate_batch
-# from functions.analysis import calc_ECE, calc_MCE, calc_val_ORC, calc_val_thresh_calibration
 from models.dynamic_TTM import TILTomorrow_model
 
 ## Define parameters for model training
