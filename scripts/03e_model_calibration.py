@@ -144,32 +144,32 @@ def main(array_task_id):
     tune_dir = os.path.join(model_dir,'repeat'+str(curr_repeat).zfill(2),'fold'+str(curr_fold).zfill(1),'tune'+str(curr_tune_idx).zfill(4))
     
     # Filter uncalibrated validation set outputs to specifications of current calibration combination
-    uncalib_val_outputs = uncalib_val_outputs[(uncalib_val_outputs.TUNE_IDX == curr_tune_idx)&(uncalib_val_outputs.REPEAT == curr_repeat)&(uncalib_val_outputs.FOLD == curr_fold)].reset_index(drop=True)
+    filt_val_outputs = uncalib_val_outputs[(uncalib_val_outputs.TUNE_IDX == curr_tune_idx)&(uncalib_val_outputs.REPEAT == curr_repeat)&(uncalib_val_outputs.FOLD == curr_fold)].reset_index(drop=True)
 
     # Filter uncalibrated testing set outputs to specifications of current calibration combination
-    uncalib_test_outputs = uncalib_test_outputs[(uncalib_test_outputs.TUNE_IDX == curr_tune_idx)&(uncalib_test_outputs.REPEAT == curr_repeat)&(uncalib_test_outputs.FOLD == curr_fold)].reset_index(drop=True)
+    filt_test_outputs = uncalib_test_outputs[(uncalib_test_outputs.TUNE_IDX == curr_tune_idx)&(uncalib_test_outputs.REPEAT == curr_repeat)&(uncalib_test_outputs.FOLD == curr_fold)].reset_index(drop=True)
 
     # Extract names of important columns
-    logit_cols = [col for col in uncalib_val_outputs if col.startswith('z_TILBasic=')]
-    prob_cols = [col for col in uncalib_val_outputs if col.startswith('Pr(TILBasic=')]
+    logit_cols = [col for col in filt_val_outputs if col.startswith('z_TILBasic=')]
+    prob_cols = [col for col in filt_val_outputs if col.startswith('Pr(TILBasic=')]
 
     # Calculate intermediate values for TILBasic validation set outputs
-    prob_matrix = uncalib_val_outputs[prob_cols]
+    prob_matrix = filt_val_outputs[prob_cols]
     prob_matrix.columns = list(range(prob_matrix.shape[1]))
     index_vector = np.array(list(range(prob_matrix.shape[1])), ndmin=2).T
-    uncalib_val_outputs['ExpectedValue'] = np.matmul(prob_matrix.values,index_vector)
-    uncalib_val_outputs['PredLabel'] = prob_matrix.idxmax(axis=1)
+    filt_val_outputs['ExpectedValue'] = np.matmul(prob_matrix.values,index_vector)
+    filt_val_outputs['PredLabel'] = prob_matrix.idxmax(axis=1)
 
     # Calculate intermediate values for TILBasic testing set outputs
-    prob_matrix = uncalib_test_outputs[prob_cols]
+    prob_matrix = filt_test_outputs[prob_cols]
     prob_matrix.columns = list(range(prob_matrix.shape[1]))
     index_vector = np.array(list(range(prob_matrix.shape[1])), ndmin=2).T
-    uncalib_test_outputs['ExpectedValue'] = np.matmul(prob_matrix.values,index_vector)
-    uncalib_test_outputs['PredLabel'] = prob_matrix.idxmax(axis=1)
+    filt_test_outputs['ExpectedValue'] = np.matmul(prob_matrix.values,index_vector)
+    filt_test_outputs['PredLabel'] = prob_matrix.idxmax(axis=1)
 
     # Prepare validation and testing set output dataframes for performance calculation
-    filt_val_outputs = prepare_df(uncalib_val_outputs,PERF_WINDOW_INDICES)
-    filt_test_outputs = prepare_df(uncalib_test_outputs,PERF_WINDOW_INDICES)
+    filt_val_outputs = prepare_df(filt_val_outputs,PERF_WINDOW_INDICES)
+    filt_test_outputs = prepare_df(filt_test_outputs,PERF_WINDOW_INDICES)
 
     # Filter validation and testing set outputs to current window index
     filt_val_outputs = filt_val_outputs[filt_val_outputs.WindowIdx == curr_window_idx].reset_index(drop=True)
