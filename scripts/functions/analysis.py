@@ -220,3 +220,37 @@ def calc_binary_calibration(pred_df,window_indices,progress_bar = True,progress_
                                                'VALUE':[curr_calib_slope,ICI,Emax]}))
     calib_metrics = pd.concat(calib_metrics,ignore_index = True).reset_index(drop=True)
     return calib_metrics
+
+# Function to calculate threshold-level calibration curves on given set outputs
+def calc_test_thresh_calib_curves(pred_df,window_indices,progress_bar = True,progress_bar_desc = ''):
+    
+    prob_cols = [col for col in pred_df if col.startswith('Pr(TILBasic=')]
+    thresh_labels = ['TILBasic>0','TILBasic>1','TILBasic>2','TILBasic>3']
+    thresh_calib_linspace = np.linspace(0,1,200)
+    calib_curves = []
+    
+    if progress_bar:
+        iterator = tqdm(pred_df.TUNE_IDX.unique(),desc=progress_bar_desc)
+    else:
+        iterator = pred_df.TUNE_IDX.unique()
+    
+    for thresh in range(1,len(prob_cols)):
+        cols_gt = prob_cols[thresh:]
+        prob_gt = pred_df[cols_gt].sum(1).values
+        gt = (pred_df['TrueLabel'] >= thresh).astype(int).values
+        pred_df['Pr('+thresh_labels[thresh-1]+')'] = prob_gt
+        pred_df[thresh_labels[thresh-1]] = gt
+        
+    for curr_tune_idx in iterator:
+        for curr_wi in window_indices:
+            filt_is_preds = pred_df[(pred_df.WindowIdx == curr_wi)&(pred_df.TUNE_IDX == curr_tune_idx)&(pred_df.TrueLabel.notna())].reset_index(drop=True)
+            for thresh in thresh_labels:
+                thresh_prob_name = 'Pr('+thresh+')'
+                TrueProb = lowess(endog = filt_is_preds[thresh], exog = filt_is_preds[thresh_prob_name], it = 0, xvals = thresh_calib_linspace)
+                calib_curves.append(pd.DataFrame({'TUNE_IDX':curr_tune_idx,
+                                                  'WINDOW_IDX':curr_wi,
+                                                  'THRESHOLD':thresh,
+                                                  'PREDPROB':thresh_calib_linspace,
+                                                  'TRUEPROB':TrueProb}))
+    calib_curves = pd.concat(calib_curves,ignore_index = True).reset_index(drop=True)    
+    return calib_curves

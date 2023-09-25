@@ -345,30 +345,3 @@ highTIL_AUC_hiplot.to_html(os.path.join(model_perf_dir,'AUC_hiplot.html'))
 highTIL_thresh_hiplot = hip.Experiment.from_dataframe(binary_calibration_val_grid)
 highTIL_thresh_hiplot.colorby = 'ERROR'
 highTIL_thresh_hiplot.to_html(os.path.join(model_perf_dir,'binary_calibration_hiplot.html'))
-
-# ## Load testing set predictions and optimal configurations
-# # Load the post-dropout tuning grid
-# filt_tuning_grid = pd.read_csv(os.path.join(model_dir,'post_dropout_tuning_grid.csv'))
-
-# # Load compiled testing set
-# test_predictions_df = pd.read_pickle(os.path.join(model_dir,'compiled_test_predictions.pkl'))
-
-# # Filter out tuning indices that remain after dropout
-# test_predictions_df = test_predictions_df[test_predictions_df.TUNE_IDX.isin(filt_tuning_grid.TUNE_IDX)].reset_index(drop=True)
-
-# ## Create bootstrapping resamples
-# # Create array of unique testing set GUPIs
-# uniq_GUPIs = test_predictions_df.GUPI.unique()
-
-# # Filter out GUPI-GOSE combinations that are in the testing set
-# test_GUPI_GOSE = study_GUPI_GOSE[study_GUPI_GOSE.GUPI.isin(uniq_GUPIs)].reset_index(drop=True)
-
-# # Make stratified resamples for bootstrapping metrics
-# bs_rs_GUPIs = [resample(test_GUPI_GOSE.GUPI.values,replace=True,n_samples=test_GUPI_GOSE.shape[0],stratify=test_GUPI_GOSE.GOSE.values) for _ in range(NUM_RESAMP)]
-# bs_rs_GUPIs = [np.unique(curr_rs) for curr_rs in bs_rs_GUPIs]
-
-# # Create Data Frame to store bootstrapping resamples 
-# bs_resamples = pd.DataFrame({'RESAMPLE_IDX':[i+1 for i in range(NUM_RESAMP)],'GUPIs':bs_rs_GUPIs})
-
-# # Save bootstrapping resample dataframe
-# bs_resamples.to_pickle(os.path.join(model_perf_dir,'test_perf_bs_resamples.pkl'))

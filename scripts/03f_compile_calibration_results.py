@@ -9,6 +9,7 @@
 # II. Compile all calibration performance metrics
 # III. Calculate average effect of calibration methods on each tuning configuration
 # IV. Compile calibrated outputs corresponding to best configurations
+# V. Create bootstrapping resamples for calculating testing set performance metrics
 
 ### I. Initialisation
 # Fundamental libraries
@@ -36,8 +37,14 @@ from pandas.api.types import CategoricalDtype
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 warnings.filterwarnings(action="ignore")
 
+# SciKit-Learn methods
+from sklearn.utils import resample
+
 # TQDM for progress tracking
 from tqdm import tqdm
+
+# Custom methods
+from functions.analysis import prepare_df
 
 ## Define parameters for model training
 # Set version code
@@ -48,6 +55,9 @@ NUM_CORES = multiprocessing.cpu_count()
 
 # Window indices at which to calculate performance metrics
 PERF_WINDOW_INDICES = [1,2,3,4,5,6,9,13,20]
+
+# Number of resamples for testing set bootstrapping
+NUM_RESAMP = 1000
 
 ## Define and create relevant directories
 # Initialise model output directory based on version code
@@ -150,12 +160,13 @@ calibrated_instances = best_cal_slopes_combos[best_cal_slopes_combos.CALIBRATION
 calibrated_instances = config_partition_combos.merge(calibrated_instances)
 
 # Add file paths of corresponding calibrated model outputs
-calibrated_instances['FILE_PATH'] = model_dir+'/'+'repeat'+str(calibrated_instances.REPEAT).zfill(2)+'/'+'fold'+str(calibrated_instances.FOLD).zfill(1)+'/'+'tune'+str(calibrated_instances.TUNE_IDX).zfill(4)+'/'+'set_'+calibrated_instances.SET+'_opt_'+calibrated_instances.OPTIMIZATION+'_window_idx_'+str(calibrated_instances.WindowIdx).zfill(2)+'_scaling_'+calibrated_instances.CALIBRATION+'.pkl'
+calibrated_instances['FILE_PATH'] = model_dir+'/'+'repeat'+calibrated_instances.REPEAT.astype(str).str.zfill(2)+'/'+'fold'+calibrated_instances.FOLD.astype(str).str.zfill(1)+'/'+'tune'+calibrated_instances.TUNE_IDX.astype(str).str.zfill(4)+'/'+'set_'+calibrated_instances.SET+'_opt_'+calibrated_instances.OPTIMIZATION+'_window_idx_'+calibrated_instances.WindowIdx.astype(str).str.zfill(2)+'_scaling_'+calibrated_instances.CALIBRATION+'.pkl'
 
 # Check if created file path exists
+calibrated_instances['FILE_EXISTS'] = calibrated_instances['FILE_PATH'].apply(os.path.isfile)
 
-
-
+# Only keep instances in which intended calibration file exists
+calibrated_instances = calibrated_instances[calibrated_instances.FILE_EXISTS].reset_index(drop=True).drop(columns='FILE_EXISTS')
 
 # Load and filter compiled, uncalibrated validation set outputs
 compiled_val_uncalib_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_val_uncalibrated_outputs.pkl'))
@@ -166,98 +177,58 @@ compiled_test_uncalib_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowT
 compiled_test_uncalib_outputs = compiled_test_uncalib_outputs[compiled_test_uncalib_outputs.TUNE_IDX.isin(best_cal_slopes_combos.TUNE_IDX)].reset_index(drop=True)
 
 ## First, extract instances in which uncalibrated output is optimal
-# Deterime instances in each tuning configuration improved by calibration method
-calibrated_instances = best_cal_slopes_combos[best_cal_slopes_combos.CALIBRATION!='None'][['TUNE_IDX','WINDOW_IDX','SET']].drop_duplicates(ignore_index=True).rename(columns={'WINDOW_IDX':'WindowIdx'})
-
 # Merge calibrated instance information with compiled, uncalibrated validation set outputs
-compiled_val_calib_outputs = compiled_val_uncalib_outputs.merge(calibrated_instances,indicator=True,how='left')
+compiled_val_calib_outputs = compiled_val_uncalib_outputs.merge(calibrated_instances[['TUNE_IDX','REPEAT','FOLD','WindowIdx','SET']].drop_duplicates(ignore_index=True),indicator=True,how='left')
 
 # Remove instances which are improved by calibration
 compiled_val_calib_outputs = compiled_val_calib_outputs[compiled_val_calib_outputs._merge=='left_only'].drop(columns='_merge').reset_index(drop=True)
 
 # Merge calibrated instance information with compiled, uncalibrated testing set outputs
-compiled_test_calib_outputs = compiled_test_uncalib_outputs.merge(calibrated_instances,indicator=True,how='left')
+compiled_test_calib_outputs = compiled_test_uncalib_outputs.merge(calibrated_instances[['TUNE_IDX','REPEAT','FOLD','WindowIdx','SET']].drop_duplicates(ignore_index=True),indicator=True,how='left')
 
 # Remove instances which are improved by calibration
 compiled_test_calib_outputs = compiled_test_calib_outputs[compiled_test_calib_outputs._merge=='left_only'].drop(columns='_merge').reset_index(drop=True)
 
 ## Next, extract optimal, calibrated outputs based on instances of minimum calibration slope error
-# Filter instances in each tuning configuration improved by calibration method (without dropping columns)
-calibrated_instances = best_cal_slopes_combos[best_cal_slopes_combos.CALIBRATION!='None'].rename(columns={'WINDOW_IDX':'WindowIdx'})
+# Extract calibrated validation set outputs in `calibrated_instances` dataframe
+sub_calib_val_outputs = pd.concat([pd.read_pickle(f) for f in tqdm(calibrated_instances.FILE_PATH[calibrated_instances.SET=='val'],'Loading calibrated validation set outputs')],ignore_index=True)
+sub_calib_val_outputs['SET'] = 'val'
 
-# Expand calibrated instances to include all repeated cross-validation partitions
-calibrated_instances = config_partition_combos.merge(calibrated_instances)
+# Append calibrated validation set outputs to full output dataframe
+compiled_val_calib_outputs = pd.concat([compiled_val_calib_outputs,sub_calib_val_outputs],ignore_index=True).sort_values(by=['REPEAT','FOLD','TUNE_IDX','GUPI','WindowIdx'],ignore_index=True)
 
-# Add file paths of corresponding calibrated model outputs
-calibrated_instances['FILE_PATH'] = model_dir+'/'+'repeat'+str(calibrated_instances.REPEAT).zfill(2)+'/'+'fold'+str(calibrated_instances.FOLD).zfill(1)+'/'+'tune'+str(calibrated_instances.TUNE_IDX).zfill(4)+'/'+'set_'+calibrated_instances.SET+'_opt_'+calibrated_instances.OPTIMIZATION+'_window_idx_'+str(calibrated_instances.WindowIdx).zfill(2)+'_scaling_'+calibrated_instances.CALIBRATION+'.pkl'
+# Extract calibrated testing set outputs in `calibrated_instances` dataframe
+sub_calib_test_outputs = pd.concat([pd.read_pickle(f) for f in tqdm(calibrated_instances.FILE_PATH[calibrated_instances.SET=='test'],'Loading calibrated testing set outputs')],ignore_index=True)
+sub_calib_test_outputs['SET'] = 'test'
 
+# Append calibrated testing set outputs to full output dataframe
+compiled_test_calib_outputs = pd.concat([compiled_test_calib_outputs,sub_calib_test_outputs],ignore_index=True).sort_values(by=['REPEAT','FOLD','TUNE_IDX','GUPI','WindowIdx'],ignore_index=True)
 
+## Save calibrated model outputs
+# Save calibrated validation set model outputs
+compiled_val_calib_outputs.to_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_val_calibrated_outputs.pkl'))
 
+# Save calibrated testing set model outputs
+compiled_test_calib_outputs.to_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_test_calibrated_outputs.pkl'))
 
+### V. Create bootstrapping resamples for calculating testing set performance metrics
+## Load and prepare testing set outputs
+# Load compiled calibrated testing set outputs
+calib_TILBasic_test_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_test_calibrated_outputs.pkl'))
 
-# # Extract unique tuning indices
-# uniq_tune_idx = best_cal_slopes_combos.TUNE_IDX.unique()
+# Preare compiled testing set outputs to desired performance window indices
+filt_TILBasic_test_outputs = prepare_df(calib_TILBasic_test_outputs,PERF_WINDOW_INDICES)
 
-# # Create running lists to store calibrated model outputs
-# calibrated_val_outputs = []
-# calibrated_test_outputs = []
+## Create bootstrapping resamples
+# Create array of unique testing set GUPIs
+uniq_GUPIs = filt_TILBasic_test_outputs.GUPI.unique()
 
-# a = pd.read_pickle('../TILTomorrow_model_outputs/v1-0/repeat01/fold1/tune0277/set_test_opt_nominal_window_idx_03_scaling_T.pkl')
-# b = pd.read_csv('../TILTomorrow_model_outputs/v1-0/repeat01/fold1/tune0277/uncalibrated_test_predictions.csv')
+# Make stratified resamples for bootstrapping metrics
+bs_rs_GUPIs = [resample(uniq_GUPIs,replace=True,n_samples=len(uniq_GUPIs)) for _ in range(NUM_RESAMP)]
+bs_rs_GUPIs = [np.unique(curr_rs) for curr_rs in bs_rs_GUPIs]
 
-# c = pd.read_pickle('../TILTomorrow_model_outputs/v1-0/TomorrowTILBasic_compiled_val_uncalibrated_outputs.pkl')
+# Create Data Frame to store bootstrapping resamples 
+bs_resamples = pd.DataFrame({'RESAMPLE_IDX':[i+1 for i in range(NUM_RESAMP)],'GUPIs':bs_rs_GUPIs})
 
-# ## Iterate through unique tuning configuration indices to extract optimal calibrated outputs
-# for curr_ti in tqdm(uniq_tune_idx,'Extract calibrated model outputs corresponding to best configurations'):
-    
-#     # Filter best calibration slope combination information to current tuning index
-#     curr_best_cal_slopes_combos = best_cal_slopes_combos[best_cal_slopes_combos]
-
-#     # Extract parameters of current partition-configuration combination
-#     curr_repeat = calibrated_output_combos.REPEAT[curr_ti]
-#     curr_fold = calibrated_output_combos.FOLD[curr_ti]
-    
-    
-#     tune_dir = os.path.join(model_dir,'repeat'+str(curr_repeat).zfill(2),'fold'+str(curr_fold).zfill(1),'tune'+str(curr_ti).zfill(4))
-
-#     if curr_ti == 69:
-#         curr_best_combos = best_69_combos.copy()
-        
-#     elif curr_ti == 135:
-#         curr_best_combos = best_135_combos.copy()
-        
-#     uncalib_val_preds = pd.read_csv(os.path.join(tune_dir,'uncalibrated_val_predictions.csv'))
-#     uncalib_val_preds['WindowIdx'] = uncalib_val_preds.groupby('GUPI').cumcount(ascending=True)+1
-#     uncalib_val_preds['REPEAT'] = curr_repeat
-#     uncalib_val_preds['FOLD'] = curr_fold
-#     calib_val_preds = []
-#     calib_val_preds.append(uncalib_val_preds[uncalib_val_preds.WindowIdx >= 85].reset_index(drop=True))
-#     none_window_indices = curr_best_combos[curr_best_combos.CALIBRATION == 'None'].WINDOW_IDX.unique()
-#     calib_val_preds.append(uncalib_val_preds[uncalib_val_preds.WindowIdx.isin(none_window_indices)].reset_index(drop=True))
-#     remaining_combos = curr_best_combos[curr_best_combos.CALIBRATION != 'None'].reset_index(drop=True)
-#     for curr_rem_row_idx in range(remaining_combos.shape[0]):
-#         curr_optimization = remaining_combos.OPTIMIZATION[curr_rem_row_idx]
-#         curr_calibration = remaining_combos.CALIBRATION[curr_rem_row_idx]
-#         curr_window_index = remaining_combos.WINDOW_IDX[curr_rem_row_idx]
-#         curr_calib_preds = pd.read_pickle(os.path.join(tune_dir,'set_val_opt_'+curr_optimization+'_window_idx_'+str(curr_window_index).zfill(2)+'_scaling_'+curr_calibration+'.pkl'))
-#         calib_val_preds.append(curr_calib_preds)
-#     calib_val_preds = pd.concat(calib_val_preds,ignore_index=True).sort_values(['GUPI','WindowIdx']).reset_index(drop=True)
-#     calib_val_preds.to_csv(os.path.join(tune_dir,'calibrated_val_predictions.csv'),index=False)
-    
-#     uncalib_test_preds = pd.read_csv(os.path.join(tune_dir,'uncalibrated_test_predictions.csv'))
-#     uncalib_test_preds['WindowIdx'] = uncalib_test_preds.groupby('GUPI').cumcount(ascending=True)+1
-#     uncalib_test_preds['REPEAT'] = curr_repeat
-#     uncalib_test_preds['FOLD'] = curr_fold
-#     calib_test_preds = []
-#     calib_test_preds.append(uncalib_test_preds[uncalib_test_preds.WindowIdx >= 85].reset_index(drop=True))
-#     none_window_indices = curr_best_combos[curr_best_combos.CALIBRATION == 'None'].WINDOW_IDX.unique()
-#     calib_test_preds.append(uncalib_test_preds[uncalib_test_preds.WindowIdx.isin(none_window_indices)].reset_index(drop=True))
-#     remaining_combos = curr_best_combos[curr_best_combos.CALIBRATION != 'None'].reset_index(drop=True)
-#     for curr_rem_row_idx in range(remaining_combos.shape[0]):
-#         curr_optimization = remaining_combos.OPTIMIZATION[curr_rem_row_idx]
-#         curr_calibration = remaining_combos.CALIBRATION[curr_rem_row_idx]
-#         curr_window_index = remaining_combos.WINDOW_IDX[curr_rem_row_idx]
-#         curr_calib_preds = pd.read_pickle(os.path.join(tune_dir,'set_test_opt_'+curr_optimization+'_window_idx_'+str(curr_window_index).zfill(2)+'_scaling_'+curr_calibration+'.pkl'))
-#         calib_test_preds.append(curr_calib_preds)
-#     calib_test_preds = pd.concat(calib_test_preds,ignore_index=True).sort_values(['GUPI','WindowIdx']).reset_index(drop=True)
-#     calib_test_preds.to_csv(os.path.join(tune_dir,'calibrated_test_predictions.csv'),index=False)
+# Save bootstrapping resample dataframe
+bs_resamples.to_pickle(os.path.join(model_perf_dir,'test_performance_bs_resamples.pkl'))
