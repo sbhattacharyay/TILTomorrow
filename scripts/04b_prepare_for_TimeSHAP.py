@@ -59,8 +59,8 @@ from timeshap.utils import get_avg_score_with_avg_event
 # Custom methods
 from classes.datasets import DYN_ALL_VARIABLE_SET
 from models.dynamic_TTM import TILTomorrow_model, timeshap_TILTomorrow_model
-from functions.model_building import collate_batch
-#format_shap, format_tokens, df_to_multihot_matrix
+from functions.model_building import collate_batch, df_to_multihot_matrix
+#format_shap, format_tokens
 
 ## Define parameters for model training
 # Set version code
@@ -373,7 +373,7 @@ for curr_cv_index in tqdm(range(uniq_partitions.shape[0]),'Iterating through uni
         avg_score_over_len = pd.DataFrame(avg_score_over_len.items(),columns=['WindowIdx','Probability'])
         
         # Add metadata
-        avg_score_over_len['Threshold'] = 'ExpectedValue'
+        avg_score_over_len['Threshold'] = SHAP_THRESHOLD
         avg_score_over_len['REPEAT'] = curr_repeat
         avg_score_over_len['FOLD'] = curr_fold
         avg_score_over_len['TUNE_IDX'] = curr_tune_idx
@@ -381,27 +381,27 @@ for curr_cv_index in tqdm(range(uniq_partitions.shape[0]),'Iterating through uni
         # Append dataframe to running list
         avg_event_preds.append(avg_score_over_len)
 
-        # Calculate threshold-level probabilities of each output
-        thresh_labels = ['TILBasic>0','TILBasic>1','TILBasic>2','TILBasic>3']
-        for thresh in range(len(thresh_labels)):     
+        # # Calculate threshold-level probabilities of each output
+        # thresh_labels = ['TILBasic>0','TILBasic>1','TILBasic>2','TILBasic>3']
+        # for thresh in range(len(thresh_labels)):     
             
-            # Initialize custom TimeSHAP model for threshold value effect calculation
-            ts_TILBasic_model = timeshap_TILTomorrow_model(ttm_model,curr_rnn_type,thresh,unknown_index,average_event.shape[1]-len(curr_vocab))
-            wrapped_ttm_model = TorchModelWrapper(ts_TILBasic_model)
-            f_hs = lambda x, y=None: wrapped_ttm_model.predict_last_hs(x, y)
+        #     # Initialize custom TimeSHAP model for threshold value effect calculation
+        #     ts_TILBasic_model = timeshap_TILTomorrow_model(ttm_model,curr_rnn_type,thresh,unknown_index,average_event.shape[1]-len(curr_vocab))
+        #     wrapped_ttm_model = TorchModelWrapper(ts_TILBasic_model)
+        #     f_hs = lambda x, y=None: wrapped_ttm_model.predict_last_hs(x, y)
 
-            # Calculate average output over time based on average event
-            avg_score_over_len = get_avg_score_with_avg_event(f_hs, average_event, top=84)
-            avg_score_over_len = pd.DataFrame(avg_score_over_len.items(),columns=['WindowIdx','Probability'])
+        #     # Calculate average output over time based on average event
+        #     avg_score_over_len = get_avg_score_with_avg_event(f_hs, average_event, top=84)
+        #     avg_score_over_len = pd.DataFrame(avg_score_over_len.items(),columns=['WindowIdx','Probability'])
             
-            # Add metadata
-            avg_score_over_len['Threshold'] = thresh_labels[thresh]
-            avg_score_over_len['REPEAT'] = curr_repeat
-            avg_score_over_len['FOLD'] = curr_fold
-            avg_score_over_len['TUNE_IDX'] = curr_tune_idx
+        #     # Add metadata
+        #     avg_score_over_len['Threshold'] = thresh_labels[thresh]
+        #     avg_score_over_len['REPEAT'] = curr_repeat
+        #     avg_score_over_len['FOLD'] = curr_fold
+        #     avg_score_over_len['TUNE_IDX'] = curr_tune_idx
             
-            # Append dataframe to running list
-            avg_event_preds.append(avg_score_over_len)
+        #     # Append dataframe to running list
+        #     avg_event_preds.append(avg_score_over_len)
 
 # Concatenate average-event output list into dataframe
 avg_event_preds = pd.concat(avg_event_preds,ignore_index=True)
