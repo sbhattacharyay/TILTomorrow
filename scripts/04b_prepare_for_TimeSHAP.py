@@ -9,7 +9,7 @@
 # II. Identify timepoints in testing set outputs for TimeSHAP focus
 # III. Partition significant timepoints for parallel TimeSHAP calculation
 # IV. Calculate average training set outputs per tuning configuration
-# V. Determine distribution of signficant transitions over time and entropy
+# V. Determine distribution of signficant timepoints over time and entropy
 # VI. Summarise average output at each threshold over time
 
 ### I. Initialisation
@@ -565,19 +565,19 @@ summ_zero_event_preds = zero_event_preds.groupby(['TUNE_IDX','Threshold','Window
 # Save summarised zero-event predictors
 summ_zero_event_preds.to_csv(os.path.join(shap_dir,'summarised_zero_event_outputs.csv'),index=False)
 
-### V. Determine distribution of signficant transitions over time and entropy
-# ## Determine distribution of significant prognostic transitions over time
-# # Load significant points of prognostic transition
-# timeshap_points = pd.read_pickle(os.path.join(shap_dir,'significant_transition_points.pkl'))
+### V. Determine distribution of signficant timepoints over time and entropy
+# ## Determine distribution of significant prognostic timepoints over time
+# # Load significant points of prognostic timepoint
+# timeshap_points = pd.read_pickle(os.path.join(shap_dir,'significant_timepoint_points.pkl'))
 
-# # Remove significant transitions from the pre-calibrated zone
+# # Remove significant timepoints from the pre-calibrated zone
 # timeshap_points = timeshap_points[timeshap_points.WindowIdx > 4].reset_index(drop=True)
 
-# # Calculate count of number of transitions above and below threshold per window index
+# # Calculate count of number of timepoints above and below threshold per window index
 # timeshap_points_over_time = timeshap_points.groupby(['WindowIdx','Above'],as_index=False).GUPI.count()
 
-# # Save count of significant transitions over time
-# timeshap_points_over_time.to_csv(os.path.join(shap_dir,'significant_transition_count_over_time.csv'),index=False)
+# # Save count of significant timepoints over time
+# timeshap_points_over_time.to_csv(os.path.join(shap_dir,'significant_timepoint_count_over_time.csv'),index=False)
 
 ## Calculate Shannon's Entropy over time
 # Load compiled testing set outputs
