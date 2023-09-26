@@ -206,15 +206,18 @@ for curr_cv_index in tqdm(range(uniq_partitions.shape[0]),'Iterating through uni
         curr_physician_impressions = tuning_grid.PHYS_IMPRESSION_TOKENS[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
         curr_outcome_label = tuning_grid.OUTCOME_LABEL[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
             
+        # Create copy of training set for configuration-specific formatting
+        format_training_set = training_set.copy()
+        
         # Format tokens based on physician-impression decision
         if curr_physician_impressions:
-            training_set.VocabIndex = training_set.VocabIndex + training_set.VocabPhysImpressionIndex
+            format_training_set.VocabIndex = format_training_set.VocabIndex + format_training_set.VocabPhysImpressionIndex
             
         # Ensure indices are unique
-        training_set.VocabIndex = training_set.VocabIndex.apply(lambda x: np.unique(x).tolist())
-
+        format_training_set.VocabIndex = format_training_set.VocabIndex.apply(lambda x: np.unique(x).tolist())
+        
         # Create PyTorch Dataset object
-        train_Dataset = DYN_ALL_VARIABLE_SET(training_set,curr_outcome_label)
+        train_Dataset = DYN_ALL_VARIABLE_SET(format_training_set,curr_outcome_label)
 
         # Create PyTorch DataLoader object
         curr_train_DL = DataLoader(train_Dataset,
@@ -422,33 +425,173 @@ summ_avg_event_preds = avg_event_preds.groupby(['TUNE_IDX','Threshold','WindowId
 # Save summarised average-event predictors
 summ_avg_event_preds.to_csv(os.path.join(shap_dir,'summarised_average_event_outputs.csv'),index=False)
 
+## Calculate "zero event" outputs for TimeSHAP
+# Define variable to store zero-event outputs
+zero_event_preds = []
+
+# Extract unique partitions of cross-validation
+uniq_partitions = ckpt_info[['REPEAT','FOLD']].drop_duplicates(ignore_index=True)
+
+# Iterate through folds
+for curr_cv_index in tqdm(range(uniq_partitions.shape[0]),'Iterating through unique cross validation partitions to calculate zero event outputs'):
+    
+    # Extract current repeat and fold from index
+    curr_repeat = uniq_partitions.REPEAT[curr_cv_index]
+    curr_fold = uniq_partitions.FOLD[curr_cv_index]
+
+    # Define current fold token subdirectory
+    token_fold_dir = os.path.join(tokens_dir,'repeat'+str(curr_repeat).zfill(2),'fold'+str(curr_fold))
+    
+    # Load current token-indexed testing set
+    testing_set = pd.read_pickle(os.path.join(token_fold_dir,'TILTomorrow_testing_indices.pkl'))
+    
+    # Filter testing set outputs based on `WindowIdx`
+    testing_set = testing_set[testing_set.WindowIdx.isin(SHAP_WINDOW_INDICES)].reset_index(drop=True)
+    
+    # Load current token-indexed training set
+    training_set = pd.read_pickle(os.path.join(token_fold_dir,'TILTomorrow_training_indices.pkl'))
+    
+    # Filter training set outputs based on `WindowIdx`
+    training_set = training_set[training_set.WindowIdx.isin(SHAP_WINDOW_INDICES)].reset_index(drop=True)
+
+    # Load current token dictionary
+    curr_vocab = cp.load(open(os.path.join(token_fold_dir,'TILTomorrow_token_dictionary.pkl'),"rb"))
+    unknown_index = curr_vocab['<unk>']
+    
+    # Iterate through tuning indices
+    for curr_tune_idx in tqdm(ckpt_info[(ckpt_info.REPEAT==curr_repeat)&(ckpt_info.FOLD==curr_fold)].TUNE_IDX.unique(),'Iterating through tuning indices in repeat '+str(curr_repeat)+', fold '+str(curr_fold)+' to calculate zero event outputs'):
+        
+        # Extract current file and required hyperparameter information
+        curr_file = ckpt_info.file[(ckpt_info.REPEAT==curr_repeat)&(ckpt_info.FOLD==curr_fold)&(ckpt_info.TUNE_IDX==curr_tune_idx)].values[0]
+        curr_physician_impressions = tuning_grid.PHYS_IMPRESSION_TOKENS[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
+        curr_outcome_label = tuning_grid.OUTCOME_LABEL[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
+        curr_rnn_type = tuning_grid.RNN_TYPE[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
+        
+        # Create copies of training, validation, and testing sets for configuration-specific formatting
+        format_training_set = training_set.copy()
+        format_testing_set = testing_set.copy()
+        
+        # Format tokens based on physician-impression decision
+        if curr_physician_impressions:
+            format_training_set.VocabIndex = format_training_set.VocabIndex + format_training_set.VocabPhysImpressionIndex
+            format_testing_set.VocabIndex = format_testing_set.VocabIndex + format_testing_set.VocabPhysImpressionIndex
+            
+        # Ensure indices are unique
+        format_training_set.VocabIndex = format_training_set.VocabIndex.apply(lambda x: np.unique(x).tolist())
+        format_testing_set.VocabIndex = format_testing_set.VocabIndex.apply(lambda x: np.unique(x).tolist())
+        
+        # Calculate maximum number of unknowns in testing set
+        format_testing_set['SeqLength'] = format_testing_set.VocabIndex.apply(len)
+        format_testing_set['Unknowns'] = format_testing_set.VocabIndex.apply(lambda x: x.count(unknown_index))      
+        
+        # Calculate number of columns to add
+        cols_to_add = max(format_testing_set['Unknowns'].max(),1) - 1
+        
+        # Define token labels from current vocab
+        token_labels = curr_vocab.get_itos() + [curr_vocab.get_itos()[unknown_index]+'_'+str(i+1).zfill(3) for i in range(cols_to_add)]
+        token_labels[unknown_index] = token_labels[unknown_index]+'_000'
+        
+        # Convert training set dataframe to multihot matrix
+        training_multihot = df_to_multihot_matrix(format_training_set, len(curr_vocab), unknown_index, cols_to_add)
+        
+        # Define zero-token dataframe from training set for "zero event"
+        training_token_frequencies = training_multihot.sum(0)/training_multihot.shape[0]
+        zero_event = pd.DataFrame(0, index=np.arange(1), columns=token_labels)
+        
+        # Load current pretrained model
+        ttm_model = TILTomorrow_model.load_from_checkpoint(curr_file)
+        ttm_model.eval()
+        
+        ## First, calculate zero output of expected value effect calcualation
+        # Define list of possible TILBasic thresholds
+        thresh_labels = ['TILBasic>0','TILBasic>1','TILBasic>2','TILBasic>3']
+        
+        # Initialize custom TimeSHAP model for expected value effect calculation
+        ts_TILBasic_model = timeshap_TILTomorrow_model(ttm_model,curr_rnn_type,thresh_labels.index(SHAP_THRESHOLD),unknown_index,zero_event.shape[1]-len(curr_vocab))
+        wrapped_ttm_model = TorchModelWrapper(ts_TILBasic_model)
+        f_hs = lambda x, y=None: wrapped_ttm_model.predict_last_hs(x, y)
+
+        # Calculate zero output on expected GOSE over time based on zero event
+        zero_score_over_len = get_avg_score_with_avg_event(f_hs, zero_event, top=max(SHAP_WINDOW_INDICES))
+        zero_score_over_len = pd.DataFrame(zero_score_over_len.items(),columns=['WindowIdx','Probability'])
+        
+        # Add metadata
+        zero_score_over_len['Threshold'] = SHAP_THRESHOLD
+        zero_score_over_len['REPEAT'] = curr_repeat
+        zero_score_over_len['FOLD'] = curr_fold
+        zero_score_over_len['TUNE_IDX'] = curr_tune_idx
+
+        # Append dataframe to running list
+        zero_event_preds.append(zero_score_over_len)
+
+        # # Calculate threshold-level probabilities of each output
+        # thresh_labels = ['TILBasic>0','TILBasic>1','TILBasic>2','TILBasic>3']
+        # for thresh in range(len(thresh_labels)):     
+            
+        #     # Initialize custom TimeSHAP model for threshold value effect calculation
+        #     ts_TILBasic_model = timeshap_TILTomorrow_model(ttm_model,curr_rnn_type,thresh,unknown_index,zero_event.shape[1]-len(curr_vocab))
+        #     wrapped_ttm_model = TorchModelWrapper(ts_TILBasic_model)
+        #     f_hs = lambda x, y=None: wrapped_ttm_model.predict_last_hs(x, y)
+
+        #     # Calculate zero output over time based on zero event
+        #     zero_score_over_len = get_zero_score_with_zero_event(f_hs, zero_event, top=84)
+        #     zero_score_over_len = pd.DataFrame(zero_score_over_len.items(),columns=['WindowIdx','Probability'])
+            
+        #     # Add metadata
+        #     zero_score_over_len['Threshold'] = thresh_labels[thresh]
+        #     zero_score_over_len['REPEAT'] = curr_repeat
+        #     zero_score_over_len['FOLD'] = curr_fold
+        #     zero_score_over_len['TUNE_IDX'] = curr_tune_idx
+            
+        #     # Append dataframe to running list
+        #     zero_event_preds.append(zero_score_over_len)
+
+# Concatenate zero-event output list into dataframe
+zero_event_preds = pd.concat(zero_event_preds,ignore_index=True)
+
+# Sort zero-event output dataframe and reorganize columns
+zero_event_preds = zero_event_preds.sort_values(by=['TUNE_IDX','REPEAT','FOLD','Threshold','WindowIdx']).reset_index(drop=True)
+zero_event_preds = zero_event_preds[['TUNE_IDX','REPEAT','FOLD','Threshold','WindowIdx','Probability']]
+
+# Save zero-event outputs into TimeSHAP directory
+zero_event_preds.to_pickle(os.path.join(shap_dir,'zero_event_outputs.pkl'))
+
+# Load zero-event outputs from TimeSHAP directory
+zero_event_preds = pd.read_pickle(os.path.join(shap_dir,'zero_event_outputs.pkl'))
+
+# Summarise zero-event outputs
+summ_zero_event_preds = zero_event_preds.groupby(['TUNE_IDX','Threshold','WindowIdx'],as_index=False)['Probability'].aggregate({'Q1':lambda x: np.quantile(x,.25),'median':np.median,'Q3':lambda x: np.quantile(x,.75),'mean':np.mean,'std':np.std,'resamples':'count'}).reset_index(drop=True)
+
+# Save summarised zero-event predictors
+summ_zero_event_preds.to_csv(os.path.join(shap_dir,'summarised_zero_event_outputs.csv'),index=False)
+
 ### V. Determine distribution of signficant transitions over time and entropy
-## Determine distribution of significant prognostic transitions over time
-# Load significant points of prognostic transition
-timeshap_points = pd.read_pickle(os.path.join(shap_dir,'significant_transition_points.pkl'))
+# ## Determine distribution of significant prognostic transitions over time
+# # Load significant points of prognostic transition
+# timeshap_points = pd.read_pickle(os.path.join(shap_dir,'significant_transition_points.pkl'))
 
-# Remove significant transitions from the pre-calibrated zone
-timeshap_points = timeshap_points[timeshap_points.WindowIdx > 4].reset_index(drop=True)
+# # Remove significant transitions from the pre-calibrated zone
+# timeshap_points = timeshap_points[timeshap_points.WindowIdx > 4].reset_index(drop=True)
 
-# Calculate count of number of transitions above and below threshold per window index
-timeshap_points_over_time = timeshap_points.groupby(['WindowIdx','Above'],as_index=False).GUPI.count()
+# # Calculate count of number of transitions above and below threshold per window index
+# timeshap_points_over_time = timeshap_points.groupby(['WindowIdx','Above'],as_index=False).GUPI.count()
 
-# Save count of significant transitions over time
-timeshap_points_over_time.to_csv(os.path.join(shap_dir,'significant_transition_count_over_time.csv'),index=False)
+# # Save count of significant transitions over time
+# timeshap_points_over_time.to_csv(os.path.join(shap_dir,'significant_transition_count_over_time.csv'),index=False)
 
 ## Calculate Shannon's Entropy over time
 # Load compiled testing set outputs
-test_outputs_df = pd.read_csv(os.path.join(model_dir,'compiled_test_outputs.csv'))
+test_outputs_df = pd.read_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_test_calibrated_outputs.pkl'))
 
 # Filter testing set outputs to top-performing model
-test_outputs_df = test_outputs_df[test_outputs_df.TUNE_IDX==135].reset_index(drop=True)
+test_outputs_df = test_outputs_df[test_outputs_df.TUNE_IDX.isin(tuning_grid.TUNE_IDX)].reset_index(drop=True)
 
 # Calculate Shannon's Entropy based on predicted GOSE probability
 prob_cols = [col for col in test_outputs_df if col.startswith('Pr(TILBasic=')]
 test_outputs_df['Entropy'] = stats.entropy(test_outputs_df[prob_cols],axis=1,base=2)
 
 # Summarise entropy values by `WindowIdx`
-summarised_entropy = test_outputs_df.groupby('WindowIdx',as_index=False)['Entropy'].aggregate({'lo':lambda x: np.quantile(x,.025),'median':np.median,'hi':lambda x: np.quantile(x,.975),'mean':np.mean,'std':np.std,'resamples':'count'}).reset_index(drop=True)
+summarised_entropy = test_outputs_df.groupby(['TUNE_IDX','WindowIdx'],as_index=False)['Entropy'].aggregate({'lo':lambda x: np.quantile(x,.025),'median':np.median,'hi':lambda x: np.quantile(x,.975),'mean':np.mean,'std':np.std,'resamples':'count'}).reset_index(drop=True)
 
 # Save summarised entropy values
 summarised_entropy.to_csv(os.path.join(model_dir,'summarised_entropy_values.csv'),index=False)
@@ -456,10 +599,10 @@ summarised_entropy.to_csv(os.path.join(model_dir,'summarised_entropy_values.csv'
 ### VI. Summarise average output at each threshold over time
 ## Load and prepare compiled testing set outputs
 # Load compiled testing set outputs
-test_outputs_df = pd.read_csv(os.path.join(model_dir,'compiled_test_outputs.csv'))
+test_outputs_df = pd.read_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_test_calibrated_outputs.pkl'))
 
 # Filter testing set outputs to top-performing model
-test_outputs_df = test_outputs_df[test_outputs_df.TUNE_IDX==135].reset_index(drop=True)
+test_outputs_df = test_outputs_df[test_outputs_df.TUNE_IDX.isin(tuning_grid.TUNE_IDX)].reset_index(drop=True)
 
 # Remove logit columns from dataframe
 logit_cols = [col for col in test_outputs_df if col.startswith('z_TILBasic=')]
