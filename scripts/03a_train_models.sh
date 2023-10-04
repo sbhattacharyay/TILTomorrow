@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=v1_uncalibrated_TILTomorrow_training
+#SBATCH --job-name=v2_uncalibrated_TILTomorrow_training
 #SBATCH --time=01:30:00
 #SBATCH --array=0-719
 #SBATCH --gres=gpu:1
