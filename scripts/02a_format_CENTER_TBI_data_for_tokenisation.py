@@ -491,13 +491,20 @@ demo_names = list(demo_info.columns)
 # Load inspection table and gather names of date-intervalled variables
 demo_interval_variable_desc = pd.read_excel(os.path.join(dir_CENTER_TBI,'DemoInjHospMedHx','inspection_table.xlsx'),sheet_name='interval_variables',na_values = ["NA","NaN","nan"," ", ""])
 
-# Filter out timestamped interval variables
+# Load inspection table and gather names of decompressive craniectomy variables
+demo_decom_cran_variable_desc = pd.read_excel(os.path.join(dir_CENTER_TBI,'DemoInjHospMedHx','inspection_table.xlsx'),sheet_name='decom_craniectomy_variables',na_values = ["NA","NaN","nan"," ", ""])
+
+# Filter out dated interval variables
 demo_interval_variable_desc = demo_interval_variable_desc.groupby('IntervalType',as_index=False).filter(lambda g: ~g['name'].str.contains('Time').any()).reset_index(drop=True)
 demo_interval_names = demo_interval_variable_desc.name[demo_interval_variable_desc.name.isin(demo_names)].to_list()
 interval_demo_info = demo_info[['GUPI']+demo_interval_names].dropna(subset=demo_interval_names,how='all').reset_index(drop=True)
 
 # Add modelling end date to interval demo info dataframe
 interval_demo_info = interval_demo_info.merge(study_included_set[['GUPI','EndDate']],how='left',on='GUPI')
+
+# Filter out decompressive craniectomy variables
+demo_decom_cran_names = demo_decom_cran_variable_desc.name[demo_decom_cran_variable_desc.name.isin(demo_names)].to_list()
+decom_cran_demo_info = demo_info[['GUPI']+demo_decom_cran_names].dropna(subset=demo_decom_cran_names,how='all').reset_index(drop=True)
 
 ## DVTProphylaxisMech
 # Get columns names pertaining to DVTProphylaxisMech
@@ -739,6 +746,33 @@ curr_interval_demo_info = curr_interval_demo_info[curr_interval_demo_info.ICUDis
 curr_interval_demo_info[['ICUDisNososcomialPneumNum','ICUDisPneumSepsis','ICUDisPneumClinical','ICUDisPneumChestX','ICUDisPneumBacteriaSmpl','ICUDisPneumPathogen1','ICUDisPneumPathogen1QuantUCFml','ICUDisPneumPathogen2','ICUDisPneumPathogen2QuantUCFml','ICUDisPneumPathogen3','ICUDisPneumPathogen3QuantUCFml','ICUDisPneumPathogen4','ICUDisPneumPathogen4QuantUCFml']] = curr_interval_demo_info[['ICUDisNososcomialPneumNum','ICUDisPneumSepsis','ICUDisPneumClinical','ICUDisPneumChestX','ICUDisPneumBacteriaSmpl','ICUDisPneumPathogen1','ICUDisPneumPathogen1QuantUCFml','ICUDisPneumPathogen2','ICUDisPneumPathogen2QuantUCFml','ICUDisPneumPathogen3','ICUDisPneumPathogen3QuantUCFml','ICUDisPneumPathogen4','ICUDisPneumPathogen4QuantUCFml']].apply(lambda x: x.str.upper().str.replace('[^a-zA-Z0-9]','').str.replace(r'^\s*$','NAN',regex=True)).fillna('NAN').apply(lambda x: x.name + '_' + x)
 VAP_interval_info = curr_interval_demo_info.melt(id_vars=['GUPI','StartDate','StopDate']).groupby(['GUPI','StartDate','StopDate'],as_index=False).value.aggregate(lambda x: ' '.join(x)).rename(columns={'value':'Token'})
 
+## Decompressive craniectomy information
+# Filter formatted TIL dataframe to rows corresponding to days of decompressive craniectomy
+decom_cran_dates = formatted_TIL_values[formatted_TIL_values.TILICPSurgeryDecomCraniectomy==1][['GUPI','TILDate']].reset_index(drop=True)
+
+# For each patient, determine the start and stop date of decompressive craniectomy (depends on refractory IH status)
+decom_cran_dates = decom_cran_dates.groupby('GUPI',as_index=False).TILDate.aggregate({'StartDate':'min','StopDate':'max'})
+
+# Add study end date information and only include dated information preceding ICU discharge or withdrawal
+decom_cran_dates = decom_cran_dates.merge(study_included_set[['GUPI','EndDate']],how='left',on='GUPI').reset_index(drop=True)
+decom_cran_dates[['StartDate','StopDate','EndDate']] = decom_cran_dates[['StartDate','StopDate','EndDate']].apply(lambda x: pd.to_datetime(x,format = '%Y-%m-%d'))
+decom_cran_dates = decom_cran_dates[decom_cran_dates.StartDate <= decom_cran_dates.EndDate].reset_index(drop=True).drop(columns=['EndDate'])
+
+# Merge information from decompressive craniectomy metadata extracts and apply categorizer
+decom_cran_info = decom_cran_dates.merge(decom_cran_demo_info,how='left').apply(categorizer).drop(columns=['DecompressiveCran'])
+
+# Extract decompressive craniectomy numeric variables
+numeric_decom_cran_names = np.sort(decom_cran_info.select_dtypes(include=['number']).columns.values)
+numeric_decom_cran_info = decom_cran_info[['GUPI','StartDate','StopDate']+numeric_decom_cran_names.tolist()]
+
+# Extract and tokenise decompressive craniectomy categorical variables
+categorical_decom_cran_names = np.sort(decom_cran_info.select_dtypes(exclude=['number']).drop(columns=['GUPI','StartDate','StopDate']).columns.values)
+categorical_decom_cran_info = decom_cran_info[['GUPI','StartDate','StopDate']+categorical_decom_cran_names.tolist()].reset_index(drop=True).fillna('nan')
+categorical_decom_cran_info[categorical_decom_cran_names] = categorical_decom_cran_info[categorical_decom_cran_names].apply(lambda x: x.str.upper().str.replace('[^a-zA-Z0-9]','').str.replace(r'^\s*$','NAN',regex=True)).fillna('NAN').apply(lambda x: x.name + '_' + x)
+categorical_decom_cran_token_stub = categorical_decom_cran_info[['GUPI','StartDate','StopDate','DecompressiveCranLocation','DecompressiveCranType']].melt(id_vars=['GUPI','StartDate','StopDate']).groupby(['GUPI','StartDate','StopDate'],as_index=False).value.aggregate(lambda x: ' '.join(x)).rename(columns={'value':'Token'})
+categorical_decom_cran_phys_impression_stub = categorical_decom_cran_info[['GUPI','StartDate','StopDate','DecompressiveCranReason','SurgIntervenAppro']].melt(id_vars=['GUPI','StartDate','StopDate']).groupby(['GUPI','StartDate','StopDate'],as_index=False).value.aggregate(lambda x: ' '.join(x)).rename(columns={'value':'PhysImpressionToken'})
+categorical_decom_cran_info = categorical_decom_cran_token_stub.merge(categorical_decom_cran_phys_impression_stub,how='outer')
+
 ## ICU medication information
 # Load medication administration data
 meds_info = pd.read_csv(os.path.join(dir_CENTER_TBI,'Medication','data.csv'),na_values = ["NA","NaN","nan"," ", ""])
@@ -769,18 +803,22 @@ meds_info[['MedicationClass','MedicationAgent','MedicationRoute','MedicationReas
 meds_info = meds_info.melt(id_vars=['GUPI','StartDate','StopDate']).drop_duplicates(subset=['GUPI','StartDate','StopDate','value']).reset_index(drop=True).groupby(['GUPI','StartDate','StopDate'],as_index=False).value.aggregate(lambda x: ' '.join(x)).rename(columns={'value':'Token'})
 
 ## Concatenate date-intervalled variables
-# Concatenate
-date_interval_variables = pd.concat([DVTProphylaxisMech_interval_info,DVTProphylaxisPharm_interval_info,EnteralNutrition_interval_info,Nasogastric_interval_info,OxygenAdm_interval_info,ParenteralNutrition_interval_info,PEGTube_interval_info,Tracheostomy_interval_info,UrineCath_interval_info,CRBSI_interval_info,PneumAntibiotic_interval_info,VAP_interval_info,meds_info],ignore_index=True)
+# Concatenate categorical date-intervalled variables
+categorical_date_interval_variables = pd.concat([DVTProphylaxisMech_interval_info,DVTProphylaxisPharm_interval_info,EnteralNutrition_interval_info,Nasogastric_interval_info,OxygenAdm_interval_info,ParenteralNutrition_interval_info,PEGTube_interval_info,Tracheostomy_interval_info,UrineCath_interval_info,CRBSI_interval_info,PneumAntibiotic_interval_info,VAP_interval_info,categorical_decom_cran_info,meds_info],ignore_index=True)
 
 # Group by GUPI, StartDate, StopDate, and merge tokens
-date_interval_variables = date_interval_variables.groupby(['GUPI','StartDate','StopDate'],as_index=False).Token.aggregate(lambda x: ' '.join(x)).rename(columns={'value':'Token'}).reset_index(drop=True)
+categorical_date_interval_tokens = categorical_date_interval_variables[['GUPI','StartDate','StopDate','Token']].groupby(['GUPI','StartDate','StopDate'],as_index=False).Token.aggregate(lambda x: ' '.join(x)).rename(columns={'value':'Token'}).reset_index(drop=True)
+categorical_date_interval_phys_impression_tokens = categorical_date_interval_variables[['GUPI','StartDate','StopDate','PhysImpressionToken']].fillna('').groupby(['GUPI','StartDate','StopDate'],as_index=False).PhysImpressionToken.aggregate(lambda x: ' '.join(x)).rename(columns={'value':'Token'}).reset_index(drop=True)
+categorical_date_interval_phys_impression_tokens.PhysImpressionToken = categorical_date_interval_phys_impression_tokens.PhysImpressionToken.replace(r'^\s*$', np.nan, regex=True)
+categorical_date_interval_variables = categorical_date_interval_tokens.merge(categorical_date_interval_phys_impression_tokens,how='left',on=['GUPI','StartDate','StopDate'])
 
-# Iterate through entries, ensure unique tokens, and extract EndTokens
-date_interval_variables['EndToken'] = np.nan
-for curr_idx in tqdm(range(date_interval_variables.shape[0]), 'Cleaning date-intervalled variables'):
-    curr_token_set = date_interval_variables.Token[curr_idx]
+# Iterate through entries, ensure unique tokens and end tokens
+categorical_date_interval_variables['EndToken'] = np.nan
+for curr_idx in tqdm(range(categorical_date_interval_variables.shape[0]), 'Cleaning date-intervalled variables'):
+    curr_token_set = categorical_date_interval_variables.Token[curr_idx]
     cleaned_token_list = np.sort(np.unique(curr_token_set.split()))
     end_token_list = [t for t in cleaned_token_list if 'Ongoing_' in t]
+
     if len(end_token_list) > 0:
         cleaned_token_list = [t for t in cleaned_token_list if t not in end_token_list]
         cleaned_token_set = ' '.join(cleaned_token_list)
@@ -788,23 +826,30 @@ for curr_idx in tqdm(range(date_interval_variables.shape[0]), 'Cleaning date-int
     else:
         cleaned_token_set = ' '.join(cleaned_token_list)
         end_token_set = np.nan
-    date_interval_variables.Token[curr_idx] = cleaned_token_set
-    date_interval_variables.EndToken[curr_idx] = end_token_set
+    categorical_date_interval_variables.Token[curr_idx] = cleaned_token_set
+    categorical_date_interval_variables.EndToken[curr_idx] = end_token_set
+
+    curr_phys_impression_set = categorical_date_interval_variables.PhysImpressionToken[curr_idx]
+    if not pd.isna(curr_phys_impression_set):
+        cleaned_phys_impression_set = ' '.join(np.sort(np.unique(curr_phys_impression_set.split())))
+        categorical_date_interval_variables.PhysImpressionToken[curr_idx] = cleaned_phys_impression_set
 
 # Ad-hoc correction of patients with incorrectly labelled start dates
-date_interval_variables.StopDate[(date_interval_variables.StartDate>date_interval_variables.StopDate)&(date_interval_variables.GUPI=='3zJm265')] = date_interval_variables.StopDate[(date_interval_variables.StartDate>date_interval_variables.StopDate)&(date_interval_variables.GUPI=='3zJm265')] + pd.DateOffset(months=1)
-
-date_interval_variables.StopDate[(date_interval_variables.StartDate>date_interval_variables.StopDate)&(date_interval_variables.GUPI=='6XWQ346')] = date_interval_variables.StopDate[(date_interval_variables.StartDate>date_interval_variables.StopDate)&(date_interval_variables.GUPI=='6XWQ346')] + pd.DateOffset(months=1)
-
-date_interval_variables.StartDate[(date_interval_variables.StartDate>date_interval_variables.StopDate)&(date_interval_variables.GUPI=='6aVa533')] = date_interval_variables.StartDate[(date_interval_variables.StartDate>date_interval_variables.StopDate)&(date_interval_variables.GUPI=='6aVa533')] - pd.DateOffset(months=1)
+categorical_date_interval_variables.StopDate[(categorical_date_interval_variables.StartDate>categorical_date_interval_variables.StopDate)&(categorical_date_interval_variables.GUPI=='3zJm265')] = categorical_date_interval_variables.StopDate[(categorical_date_interval_variables.StartDate>categorical_date_interval_variables.StopDate)&(categorical_date_interval_variables.GUPI=='3zJm265')] + pd.DateOffset(months=1)
+categorical_date_interval_variables.StopDate[(categorical_date_interval_variables.StartDate>categorical_date_interval_variables.StopDate)&(categorical_date_interval_variables.GUPI=='6XWQ346')] = categorical_date_interval_variables.StopDate[(categorical_date_interval_variables.StartDate>categorical_date_interval_variables.StopDate)&(categorical_date_interval_variables.GUPI=='6XWQ346')] + pd.DateOffset(months=1)
+categorical_date_interval_variables.StartDate[(categorical_date_interval_variables.StartDate>categorical_date_interval_variables.StopDate)&(categorical_date_interval_variables.GUPI=='6aVa533')] = categorical_date_interval_variables.StartDate[(categorical_date_interval_variables.StartDate>categorical_date_interval_variables.StopDate)&(categorical_date_interval_variables.GUPI=='6aVa533')] - pd.DateOffset(months=1)
 
 # FIlter out all datapoints with start date after ICU discharge
-date_interval_variables = date_interval_variables.merge(study_included_set[['GUPI','EndTimeStamp']],how='left',on='GUPI')
-date_interval_variables = date_interval_variables[date_interval_variables.StartDate <= date_interval_variables.EndTimeStamp].drop(columns='EndTimeStamp').reset_index(drop=True)
+categorical_date_interval_variables = categorical_date_interval_variables.merge(study_included_set[['GUPI','EndTimeStamp']],how='left',on='GUPI')
+categorical_date_interval_variables = categorical_date_interval_variables[categorical_date_interval_variables.StartDate <= categorical_date_interval_variables.EndTimeStamp].drop(columns='EndTimeStamp').reset_index(drop=True)
 
 # Sort values and save date-intervalled variables
-date_interval_variables = date_interval_variables.sort_values(by=['GUPI','StartDate','StopDate']).reset_index(drop=True)
-date_interval_variables.to_pickle(os.path.join(form_TIL_dir,'categorical_date_interval_variables.pkl'))
+categorical_date_interval_variables = categorical_date_interval_variables.sort_values(by=['GUPI','StartDate','StopDate']).reset_index(drop=True)
+categorical_date_interval_variables.to_pickle(os.path.join(form_TIL_dir,'categorical_date_interval_variables.pkl'))
+
+# Format and save numeric date-intervalled variables
+numeric_date_interval_variables = numeric_decom_cran_info.melt(id_vars=['GUPI','StartDate','StopDate'],var_name='VARIABLE',value_name='VALUE').sort_values(by=['GUPI','VARIABLE','VALUE']).drop_duplicates(ignore_index=True)
+numeric_date_interval_variables.to_pickle(os.path.join(form_TIL_dir,'numeric_date_interval_variables.pkl'))
 
 ### V. Format time-intervalled variables in CENTER-TBI
 # Load demographic, history, injury characeristic interval variables
@@ -2823,12 +2868,13 @@ study_tokens_df = study_tokens_df.drop(columns ='DischargeTokens')
 # Load formatted dataframe
 categorical_date_interval_variables = pd.read_pickle(os.path.join(form_TIL_dir,'categorical_date_interval_variables.pkl')).rename(columns={'Token':'DateIntervalTokens'})
 categorical_date_interval_variables['DateIntervalTokens'] = categorical_date_interval_variables.DateIntervalTokens.str.strip()
+categorical_date_interval_variables['PhysImpressionToken'] = categorical_date_interval_variables.PhysImpressionToken.str.strip()
 categorical_date_interval_variables['EndToken'] = categorical_date_interval_variables.EndToken.str.strip()
 
 # Merge window timestamp starts and ends to formatted variable dataframe
 categorical_date_interval_variables = categorical_date_interval_variables.merge(study_tokens_df[['GUPI','TimeStampStart','TimeStampEnd','WindowIdx']],how='left',on='GUPI')
 
-# First, isolate events which finish before the date ICU admission and combine end tokens
+# First, isolate events which finish before the date ICU admission and combine end tokens (IMPLIES NO AVAILABLE BASELINE PHYS IMPRESSIONS AMONG DATE-INTERVALLED VARIABLES)
 baseline_categorical_date_interval_variables = categorical_date_interval_variables[categorical_date_interval_variables.WindowIdx == 1]
 baseline_categorical_date_interval_variables = baseline_categorical_date_interval_variables[baseline_categorical_date_interval_variables.StopDate.dt.date < baseline_categorical_date_interval_variables.TimeStampStart.dt.date].reset_index(drop=True)
 baseline_categorical_date_interval_variables.DateIntervalTokens[~baseline_categorical_date_interval_variables.EndToken.isna()] = baseline_categorical_date_interval_variables.DateIntervalTokens[~baseline_categorical_date_interval_variables.EndToken.isna()] + ' ' + baseline_categorical_date_interval_variables.EndToken[~baseline_categorical_date_interval_variables.EndToken.isna()]
@@ -2853,10 +2899,12 @@ study_tokens_df.TOKENS[~study_tokens_df.EndToken.isna()] = study_tokens_df.TOKEN
 study_tokens_df = study_tokens_df.drop(columns ='EndToken')
 
 # Merge date-interval event tokens onto study tokens dataframe
-categorical_date_interval_variables = categorical_date_interval_variables.groupby(['GUPI','WindowIdx'],as_index=False).DateIntervalTokens.aggregate(lambda x: ' '.join(x))
-study_tokens_df = study_tokens_df.merge(categorical_date_interval_variables,how='left',on=['GUPI','WindowIdx'])
+collapsed_date_interval_variables = categorical_date_interval_variables[~categorical_date_interval_variables.DateIntervalTokens.isna()].groupby(['GUPI','WindowIdx'],as_index=False).DateIntervalTokens.aggregate(lambda x: ' '.join(x))
+collapsed_date_interval_physician_impressions = categorical_date_interval_variables[~categorical_date_interval_variables.PhysImpressionToken.isna()].groupby(['GUPI','WindowIdx'],as_index=False).PhysImpressionToken.aggregate(lambda x: ' '.join(x))
+study_tokens_df = study_tokens_df.merge(collapsed_date_interval_variables,how='left',on=['GUPI','WindowIdx']).merge(collapsed_date_interval_physician_impressions,how='left',on=['GUPI','WindowIdx'])
 study_tokens_df.TOKENS[~study_tokens_df.DateIntervalTokens.isna()] = study_tokens_df.TOKENS[~study_tokens_df.DateIntervalTokens.isna()] + ' ' + study_tokens_df.DateIntervalTokens[~study_tokens_df.DateIntervalTokens.isna()]
-study_tokens_df = study_tokens_df.drop(columns ='DateIntervalTokens')
+study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] = study_tokens_df.PHYSIMPRESSIONTOKENS[~study_tokens_df.PhysImpressionToken.isna()] + ' ' + study_tokens_df.PhysImpressionToken[~study_tokens_df.PhysImpressionToken.isna()]
+study_tokens_df = study_tokens_df.drop(columns =['DateIntervalTokens','PhysImpressionToken'])
 
 ## Categorical Time-Intervalled Variables
 # Load formatted dataframe

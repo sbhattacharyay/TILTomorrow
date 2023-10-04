@@ -119,6 +119,10 @@ def main(array_task_id):
     numeric_discharge_variables = pd.read_pickle(os.path.join(form_TIL_dir,'numeric_discharge_variables.pkl')).reset_index(drop=True)
     numeric_discharge_variables['VARIABLE'] = numeric_discharge_variables.VARIABLE.str.strip().str.replace('_','')
 
+    # Numeric date-intervalled variables
+    numeric_date_interval_variables = pd.read_pickle(os.path.join(form_TIL_dir,'numeric_date_interval_variables.pkl')).reset_index(drop=True)
+    numeric_date_interval_variables['VARIABLE'] = numeric_date_interval_variables.VARIABLE.str.strip().str.replace('_','')
+
     # Numeric time-intervalled physician impressions
     numeric_time_interval_physician_impressions = pd.read_pickle(os.path.join(form_TIL_dir,'numeric_time_interval_physician_impressions.pkl')).reset_index(drop=True)
     numeric_time_interval_physician_impressions['VARIABLE'] = numeric_time_interval_physician_impressions.VARIABLE.str.strip().str.replace('_','')
@@ -255,6 +259,60 @@ def main(array_task_id):
     cleaned_study_tokens_df = cleaned_study_tokens_df.merge(numeric_discharge_variables,how='left',on=['GUPI','WindowIdx'])
     cleaned_study_tokens_df.TOKENS[~cleaned_study_tokens_df.NumericDischargeTokens.isna()] = cleaned_study_tokens_df.TOKENS[~cleaned_study_tokens_df.NumericDischargeTokens.isna()] + ' ' + cleaned_study_tokens_df.NumericDischargeTokens[~cleaned_study_tokens_df.NumericDischargeTokens.isna()]
     cleaned_study_tokens_df = cleaned_study_tokens_df.drop(columns ='NumericDischargeTokens')
+
+    ## Numeric date-intervalled variables
+    # Extract unique names of numeric date-intervalled variables from the training set
+    unique_numeric_date_interval_variables = numeric_date_interval_variables[numeric_date_interval_variables.GUPI.isin(curr_train_GUPIs)].VARIABLE.unique()
+    
+    # Create column for storing bin value
+    numeric_date_interval_variables['BIN'] = ''
+    
+    # For missing values, assign 'NAN' to bin value
+    numeric_date_interval_variables.BIN[numeric_date_interval_variables.VALUE.isna()] = '_NAN'
+    
+    # Iterate through unique numeric date-intervalled variables and tokenise
+    for curr_variable in tqdm(unique_numeric_date_interval_variables,'Tokenising numeric date-intervalled variables for repeat '+str(curr_repeat)+' fold '+str(curr_fold)):
+        
+        # Create a `KBinsDiscretizer` object for discretising the current variable
+        curr_ndiv_kbd = KBinsDiscretizer(n_bins=BINS, encode='ordinal', strategy='quantile')
+        
+        # Train cuts for discretisation of the current variable
+        curr_ndiv_kbd.fit(np.expand_dims(numeric_date_interval_variables[(numeric_date_interval_variables.VARIABLE==curr_variable)&(numeric_date_interval_variables.GUPI.isin(curr_train_GUPIs))&(~numeric_date_interval_variables.VALUE.isna())].VALUE.values,1))
+        
+        # Discretise current variable into bins
+        numeric_date_interval_variables.BIN[(numeric_date_interval_variables.VARIABLE==curr_variable)&(~numeric_date_interval_variables.VALUE.isna())] = (categorizer(pd.Series((curr_ndiv_kbd.transform(np.expand_dims(numeric_date_interval_variables[(numeric_date_interval_variables.VARIABLE==curr_variable)&(~numeric_date_interval_variables.VALUE.isna())].VALUE.values,1))+1).squeeze()),100)).str.replace(r'\s+','',regex=True).values
+        
+    # If a variable has been neglected, replace with value
+    numeric_date_interval_variables.BIN[numeric_date_interval_variables.BIN==''] = numeric_date_interval_variables.VALUE[numeric_date_interval_variables.BIN==''].astype(str).str.upper().str.replace('[^a-zA-Z0-9]','').str.replace(r'^\s*$','NAN',regex=True)
+    
+    # Create tokens from each variable and bin value
+    numeric_date_interval_variables['TOKEN'] = numeric_date_interval_variables.VARIABLE + '_BIN' + numeric_date_interval_variables.BIN
+    
+    # Concatenate tokens from each GUPI and date into a combined date-intervalled numeric variable token set
+    numeric_date_interval_variables = numeric_date_interval_variables.drop_duplicates(subset=['GUPI','StartDate','StopDate','TOKEN'],ignore_index=True).groupby(['GUPI','StartDate','StopDate'],as_index=False).TOKEN.aggregate(lambda x: ' '.join(x)).rename(columns={'TOKEN':'NumericTimeIntervalTokens'})
+    
+    # Merge window date starts and ends to formatted variable dataframe
+    numeric_date_interval_variables = numeric_date_interval_variables.merge(cleaned_study_tokens_df[['GUPI','TimeStampStart','TimeStampEnd','WindowIdx']],how='left',on='GUPI')
+
+    # First, isolate events which finish before the ICU admission date and combine end tokens
+    baseline_numeric_date_interval_variables = numeric_date_interval_variables[numeric_date_interval_variables.WindowIdx == 1]
+    baseline_numeric_date_interval_variables = baseline_numeric_date_interval_variables[baseline_numeric_date_interval_variables.StopDate < baseline_numeric_date_interval_variables.TimeStampStart].reset_index(drop=True)
+    baseline_numeric_date_interval_variables = baseline_numeric_date_interval_variables.drop(columns=['StartDate','StopDate','TimeStampStart','TimeStampEnd'])
+    # baseline_numeric_date_interval_variables = baseline_numeric_date_interval_variables.groupby(['GUPI','WindowIdx'],as_index=False).NumericTimeIntervalTokens.aggregate(lambda x: ' '.join(x))
+
+    # # Merge event tokens which finish before the date of ICU admission onto study tokens dataframe
+    # cleaned_study_tokens_df = cleaned_study_tokens_df.merge(baseline_numeric_date_interval_variables,how='left',on=['GUPI','WindowIdx'])
+    # cleaned_study_tokens_df.TOKENS[~cleaned_study_tokens_df.NumericTimeIntervalTokens.isna()] = cleaned_study_tokens_df.TOKENS[~cleaned_study_tokens_df.NumericTimeIntervalTokens.isna()] + ' ' + cleaned_study_tokens_df.NumericTimeIntervalTokens[~cleaned_study_tokens_df.NumericTimeIntervalTokens.isna()]
+    # cleaned_study_tokens_df = cleaned_study_tokens_df.drop(columns ='NumericTimeIntervalTokens')
+
+    # Then, isolate the events that fit within the given window
+    numeric_date_interval_variables = numeric_date_interval_variables[(numeric_date_interval_variables.StartDate <= numeric_date_interval_variables.TimeStampEnd)&(numeric_date_interval_variables.StopDate >= numeric_date_interval_variables.TimeStampStart)].reset_index(drop=True)
+
+    # Merge dated event tokens onto study tokens dataframe
+    numeric_date_interval_variables = numeric_date_interval_variables.groupby(['GUPI','WindowIdx'],as_index=False).NumericTimeIntervalTokens.aggregate(lambda x: ' '.join(x))
+    cleaned_study_tokens_df = cleaned_study_tokens_df.merge(numeric_date_interval_variables,how='left',on=['GUPI','WindowIdx'])
+    cleaned_study_tokens_df.TOKENS[~cleaned_study_tokens_df.NumericTimeIntervalTokens.isna()] = cleaned_study_tokens_df.TOKENS[~cleaned_study_tokens_df.NumericTimeIntervalTokens.isna()] + ' ' + cleaned_study_tokens_df.NumericTimeIntervalTokens[~cleaned_study_tokens_df.NumericTimeIntervalTokens.isna()]
+    cleaned_study_tokens_df = cleaned_study_tokens_df.drop(columns ='NumericTimeIntervalTokens')
 
     ## Numeric timestamp-intervalled physician impressions
     # Extract unique names of numeric timestamp-intervalled physician impressions from the training set
