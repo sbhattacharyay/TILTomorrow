@@ -61,7 +61,7 @@ from models.dynamic_TTM import TILTomorrow_model
 
 ## Define parameters for model training
 # Set version code
-VERSION = 'v1-0'
+VERSION = 'v2-0'
 
 ## Define and create relevant directories
 # Define directory in which tokens are stored for each partition
@@ -90,26 +90,62 @@ if not os.path.exists(os.path.join(model_dir,'tuning_grid.csv')):
     # Create parameters for training token models
     tuning_parameters = {'WINDOW_LIMIT':[6,13],
                          'RNN_TYPE':['LSTM','GRU'],
-                         'LATENT_DIM':[128,256,512],
+                         'LATENT_DIM':[256,512,1024],
                          'HIDDEN_DIM':[128,256,512],
                          'TOKEN_CUTS':[20],
-                         'MIN_BASE_TOKEN_REPRESENATION':['None',0.05],
-                         'MAX_TOKENS_PER_BASE_TOKEN':['None',100],
+                         'MIN_BASE_TOKEN_REPRESENATION':['None','0.05'],
+                         'MAX_TOKENS_PER_BASE_TOKEN':['None','100'],
                          'PHYS_IMPRESSION_TOKENS':[True],
                          'EMBED_DROPOUT':[.2],
                          'RNN_LAYERS':[1],
                          'NUM_EPOCHS':[200],
                          'ES_PATIENCE':[30],
                          'IMBALANCE_CORRECTION':['weights'],
-                         'OUTCOME_LABEL':['TomorrowTILBasic','TomorrowHighIntensityTherapy'],
+                         'OUTCOME_LABEL':['TomorrowTILBasic'],
                          'LEARNING_RATE':[0.001],
                          'BATCH_SIZE':[1]}
     
     # Convert parameter dictionary to dataframe
     tuning_grid = pd.DataFrame([row for row in itertools.product(*tuning_parameters.values())],columns=tuning_parameters.keys())
     
-    # Assign tuning indices
-    tuning_grid['TUNE_IDX'] = list(range(1,tuning_grid.shape[0]+1))
+    # Assign tuning indices based on version number
+    if (VERSION == 'v1-0'):
+        tuning_grid['TUNE_IDX'] = list(range(1,tuning_grid.shape[0]+1))
+
+    else:
+        # Find all existing tuning grids
+        existing_tuning_grids = []
+        for path in Path(os.path.join(model_dir,'..')).rglob('tuning_grid.csv'):
+            existing_tuning_grids.append(str(path.resolve()))
+
+        # Characterise existing tuning grids
+        existing_tuning_grids = pd.DataFrame({'FILE':existing_tuning_grids,
+                                              'VERSION':[re.search('_model_outputs/(.*)/tuning_grid.csv', curr_file).group(1) for curr_file in existing_tuning_grids]
+                                              }).sort_values(by=['VERSION','FILE']).reset_index(drop=True)
+        
+        # Encode version as number for comparison
+        existing_tuning_grids['NUM_VERSION'] = existing_tuning_grids['VERSION'].str.replace('-','.').str.replace('v','').astype(float)
+
+        # Load latest tuning grid
+        latest_tuning_grid = pd.read_csv(existing_tuning_grids.FILE.loc[existing_tuning_grids.NUM_VERSION.idxmax()])
+
+        # Extract unique tuning configurations from latest version
+        latest_tuning_grid = latest_tuning_grid.drop(columns=['REPEAT','FOLD']).drop_duplicates(ignore_index=True)
+
+        # Last max tuning index
+        last_max_tune_idx = latest_tuning_grid.TUNE_IDX.max()
+
+        # First identify existing configurations from previous tuning grid
+        tuning_grid = tuning_grid.merge(latest_tuning_grid,how='left')
+
+        # Add new tuning indices
+        tuning_grid.TUNE_IDX[tuning_grid.TUNE_IDX.isna()] = list(range(last_max_tune_idx+1,tuning_grid.TUNE_IDX[tuning_grid.TUNE_IDX.isna()].shape[0]+last_max_tune_idx+1))
+
+        # Cast tuning index as integer
+        tuning_grid.TUNE_IDX = tuning_grid.TUNE_IDX.astype(int)
+
+        # Sort tuning grid by tuning index
+        tuning_grid = tuning_grid.sort_values(by='TUNE_IDX',ignore_index=True)
     
     # Reorder tuning grid columns
     tuning_grid = tuning_grid[['TUNE_IDX','WINDOW_LIMIT','LATENT_DIM','HIDDEN_DIM','TOKEN_CUTS','MIN_BASE_TOKEN_REPRESENATION','MAX_TOKENS_PER_BASE_TOKEN','PHYS_IMPRESSION_TOKENS','RNN_TYPE','EMBED_DROPOUT','RNN_LAYERS','NUM_EPOCHS','ES_PATIENCE','IMBALANCE_CORRECTION','OUTCOME_LABEL','LEARNING_RATE','BATCH_SIZE']].reset_index(drop=True)
@@ -319,69 +355,6 @@ def main(array_task_id):
     # Extract names of important columns
     logit_cols = [col for col in curr_val_preds if col.startswith('z_')]
     prob_cols = [col for col in curr_val_preds if col.startswith('Pr(')]
-    
-    # # Create lists to store calibrated predictions
-    # calibrated_val_preds = []
-    # calibrated_test_preds = []
-    
-    # # Add predictions above window index limit to lists
-    # calibrated_val_preds.append(curr_val_preds[curr_val_preds.WindowIdx >= 4].reset_index(drop=True))
-    # calibrated_test_preds.append(curr_test_preds[curr_test_preds.WindowIdx >= 4].reset_index(drop=True))
-    
-    # # Learn calibration parameters from validation set predictions
-    # for curr_wi in range(1,4):
-        
-    #     # Extract predictions of current window index
-    #     curr_wi_val_preds = curr_val_preds[curr_val_preds.WindowIdx == curr_wi].reset_index(drop=True)
-    #     curr_wi_test_preds = curr_test_preds[curr_test_preds.WindowIdx == curr_wi].reset_index(drop=True)
-        
-    #     # Extract current calibration configurations
-    #     curr_optimization = 'nominal'
-    #     curr_calibration = 'vector'
-        
-    #     if curr_calibration == 'vector':
-            
-    #         if curr_optimization == 'ordinal':
-    #             prob_cols = [col for col in curr_wi_val_preds if col.startswith('Pr(TILBasic=')]
-    #             thresh_labels = ['GOSE>1','GOSE>3','GOSE>4','GOSE>5','GOSE>6','GOSE>7']
-    #             for thresh in range(1,len(prob_cols)):
-    #                 cols_gt = prob_cols[thresh:]
-    #                 prob_gt = curr_wi_val_preds[cols_gt].sum(1).values
-    #                 gt = (curr_wi_val_preds['TrueLabel'] >= thresh).astype(int).values
-    #                 curr_wi_val_preds['Pr('+thresh_labels[thresh-1]+')'] = prob_gt
-    #                 curr_wi_val_preds[thresh_labels[thresh-1]] = gt
-                    
-    #         scale_object = VectorScaling(curr_wi_val_preds)
-    #         scale_object.set_vector(curr_optimization)
-    #         with torch.no_grad():
-    #             opt_vector = scale_object.vector.detach().data
-    #             opt_biases = scale_object.biases.detach().data
-                
-    #         calib_val_logits = torch.matmul(torch.tensor(curr_wi_val_preds[logit_cols].values,dtype=torch.float32),torch.diag_embed(opt_vector.squeeze(1))) + opt_biases.squeeze(1)
-    #         calib_val_probs = F.softmax(calib_val_logits)
-    #         calib_val_preds = pd.DataFrame(torch.cat([calib_val_logits,calib_val_probs],1).numpy(),columns=logit_cols+prob_cols)
-    #         calib_val_preds.insert(loc=0, column='GUPI', value=curr_wi_val_preds['GUPI'])
-    #         calib_val_preds['TrueLabel'] = curr_wi_val_preds['TrueLabel']
-    #         calib_val_preds['TUNE_IDX'] = curr_tune_idx
-    #         calib_val_preds['WindowIdx'] = curr_wi
-    #         calibrated_val_preds.append(calib_val_preds)
-            
-    #         calib_test_logits = torch.matmul(torch.tensor(curr_wi_test_preds[logit_cols].values,dtype=torch.float32),torch.diag_embed(opt_vector.squeeze(1))) + opt_biases.squeeze(1)
-    #         calib_test_probs = F.softmax(calib_test_logits)
-    #         calib_test_preds = pd.DataFrame(torch.cat([calib_test_logits,calib_test_probs],1).numpy(),columns=logit_cols+prob_cols)
-    #         calib_test_preds.insert(loc=0, column='GUPI', value=curr_wi_test_preds['GUPI'])
-    #         calib_test_preds['TrueLabel'] = curr_wi_test_preds['TrueLabel']
-    #         calib_test_preds['TUNE_IDX'] = curr_tune_idx
-    #         calib_test_preds['WindowIdx'] = curr_wi
-    #         calibrated_test_preds.append(calib_test_preds)
-    
-    # # Concatenate and sort calibrated predictions
-    # calibrated_val_preds = pd.concat(calibrated_val_preds,ignore_index=True).sort_values(by=['GUPI','WindowIdx'],ignore_index=True)
-    # calibrated_test_preds = pd.concat(calibrated_test_preds,ignore_index=True).sort_values(by=['GUPI','WindowIdx'],ignore_index=True)
-    
-    # # Save calibrated predictions
-    # calibrated_val_preds.to_csv(os.path.join(tune_dir,'calibrated_val_predictions.csv'),index=False)
-    # calibrated_test_preds.to_csv(os.path.join(tune_dir,'calibrated_test_predictions.csv'),index=False)
     
 if __name__ == '__main__':
     

@@ -83,7 +83,7 @@ formatted_TIL_values['TILDate'] = pd.to_datetime(formatted_TIL_values['TILDate']
 
 ## Define parameters for token characterisation
 # Set version code
-VERSION = 'v1-0'
+VERSION = 'v2-0'
 
 ### II. Create a full dictionary of tokens for exploration
 ## Identify and characterise all TILTomorrow token dictionaries
@@ -136,181 +136,205 @@ full_token_keys['Discharge'] = full_token_keys.Token.str.startswith('Discharge')
 full_token_keys.BaseToken[full_token_keys.Baseline] = full_token_keys.BaseToken[full_token_keys.Baseline].str.replace('Baseline','',1,regex=False)
 full_token_keys.BaseToken[full_token_keys.Discharge] = full_token_keys.BaseToken[full_token_keys.Discharge].str.replace('Discharge','',1,regex=False)
 
-## Extract token information for prior (dynamic GOSE) study
-# Load token keys from prior study (v1) and filter to those found in current study
-legacy_v1_token_key = pd.read_excel(os.path.join(tokens_dir,'legacy_full_token_keys.xlsx'))
-legacy_v1_token_key['BaseToken'] = legacy_v1_token_key['BaseToken'].fillna('')
-legacy_v1_token_key = legacy_v1_token_key[legacy_v1_token_key.BaseToken.isin(full_token_keys.BaseToken)].reset_index(drop=True)
-legacy_v1_token_key['Binary'] = False
+if VERSION=='v1-0':
+    ## Extract token information for prior (dynamic GOSE) study
+    # Load token keys from prior study (v1) and filter to those found in current study
+    legacy_v1_token_key = pd.read_excel(os.path.join(tokens_dir,'legacy_full_token_keys.xlsx'))
+    legacy_v1_token_key['BaseToken'] = legacy_v1_token_key['BaseToken'].fillna('')
+    legacy_v1_token_key = legacy_v1_token_key[legacy_v1_token_key.BaseToken.isin(full_token_keys.BaseToken)].reset_index(drop=True)
+    legacy_v1_token_key['Binary'] = False
 
-# Load token keys from prior study (v2) and filter to those found in current study
-legacy_v2_token_key = pd.read_excel(os.path.join(tokens_dir,'full_token_keys.xlsx'))
-legacy_v2_token_key['BaseToken'] = legacy_v2_token_key['BaseToken'].fillna('')
-legacy_v2_token_key = legacy_v2_token_key[legacy_v2_token_key.BaseToken.isin(full_token_keys.BaseToken)].reset_index(drop=True)
+    # Load token keys from prior study (v2) and filter to those found in current study
+    legacy_v2_token_key = pd.read_excel(os.path.join(tokens_dir,'full_token_keys.xlsx'))
+    legacy_v2_token_key['BaseToken'] = legacy_v2_token_key['BaseToken'].fillna('')
+    legacy_v2_token_key = legacy_v2_token_key[legacy_v2_token_key.BaseToken.isin(full_token_keys.BaseToken)].reset_index(drop=True)
 
-# Based on hierarchy, remove all v1 legacy token keys that are in v2 legacy token keys
-legacy_v1_token_key = legacy_v1_token_key[~legacy_v1_token_key.BaseToken.isin(legacy_v2_token_key.BaseToken)].reset_index(drop=True)
+    # Based on hierarchy, remove all v1 legacy token keys that are in v2 legacy token keys
+    legacy_v1_token_key = legacy_v1_token_key[~legacy_v1_token_key.BaseToken.isin(legacy_v2_token_key.BaseToken)].reset_index(drop=True)
 
-# Add a new column in v2 legacy token keys designating unknown non-missing values and drop missingness indicator
-legacy_v2_token_key['UnknownNonMissing'] = (legacy_v2_token_key.Missing) & ~(legacy_v2_token_key.Value.isin(['NAN','BIN_NAN']))
-legacy_v2_token_key = legacy_v2_token_key.drop(columns='Missing')
-legacy_v1_token_key = legacy_v1_token_key.drop(columns='Missing')
+    # Add a new column in v2 legacy token keys designating unknown non-missing values and drop missingness indicator
+    legacy_v2_token_key['UnknownNonMissing'] = (legacy_v2_token_key.Missing) & ~(legacy_v2_token_key.Value.isin(['NAN','BIN_NAN']))
+    legacy_v2_token_key = legacy_v2_token_key.drop(columns='Missing')
+    legacy_v1_token_key = legacy_v1_token_key.drop(columns='Missing')
 
-# In the v1 legacy token keys, fix token types to match those of v2 legacy token keys
-legacy_v1_token_key.Type[legacy_v1_token_key.Type=='Surgery and Neuromonitoring'] = 'Surgery'
-legacy_v1_token_key.Type[(legacy_v1_token_key.Type=='ICU Medications and Management')&(legacy_v1_token_key.BaseToken=='TransReason')] = 'Transitions of Care'
-legacy_v1_token_key.Type[(legacy_v1_token_key.Type=='ICU Medications and Management')&(legacy_v1_token_key.BaseToken=='HVTILChangeReason')] = 'Bihourly Assessments'
-legacy_v1_token_key.Type[(legacy_v1_token_key.Type=='ICU Medications and Management')] = 'ICU Monitoring and Management'
+    # In the v1 legacy token keys, fix token types to match those of v2 legacy token keys
+    legacy_v1_token_key.Type[legacy_v1_token_key.Type=='Surgery and Neuromonitoring'] = 'Surgery'
+    legacy_v1_token_key.Type[(legacy_v1_token_key.Type=='ICU Medications and Management')&(legacy_v1_token_key.BaseToken=='TransReason')] = 'Transitions of Care'
+    legacy_v1_token_key.Type[(legacy_v1_token_key.Type=='ICU Medications and Management')&(legacy_v1_token_key.BaseToken=='HVTILChangeReason')] = 'Bihourly Assessments'
+    legacy_v1_token_key.Type[(legacy_v1_token_key.Type=='ICU Medications and Management')] = 'ICU Monitoring and Management'
 
-# Concatenate base-token information from both legacy version token keys
-compiled_legacy_base_token_key = pd.concat([legacy_v1_token_key.drop(columns=['Token','Numeric','Baseline']).drop_duplicates(ignore_index=True),
-                                            legacy_v2_token_key.drop(columns=['Token','Value','OrderIdx','Numeric','Baseline','Discharge','UnknownNonMissing']).drop_duplicates(ignore_index=True)],ignore_index=True).drop_duplicates(ignore_index=True)
+    # Concatenate base-token information from both legacy version token keys
+    compiled_legacy_base_token_key = pd.concat([legacy_v1_token_key.drop(columns=['Token','Numeric','Baseline']).drop_duplicates(ignore_index=True),
+                                                legacy_v2_token_key.drop(columns=['Token','Value','OrderIdx','Numeric','Baseline','Discharge','UnknownNonMissing']).drop_duplicates(ignore_index=True)],ignore_index=True).drop_duplicates(ignore_index=True)
+    
+    # Merge base-token information onto current compiled token vocabulary
+    full_token_keys = full_token_keys.merge(compiled_legacy_base_token_key,how='left')
 
-# Merge base-token information onto current compiled token vocabulary
-full_token_keys = full_token_keys.merge(compiled_legacy_base_token_key,how='left')
+    # Merge token-unique information (of unknown but not missing) from v2 legacy token keys onto current compiled token vocabulary
+    full_token_keys = full_token_keys.merge(legacy_v2_token_key[['Token','BaseToken','UnknownNonMissing']].drop_duplicates(),how='left')
 
-# Merge token-unique information (of unknown but not missing) from v2 legacy token keys onto current compiled token vocabulary
-full_token_keys = full_token_keys.merge(legacy_v2_token_key[['Token','BaseToken','UnknownNonMissing']].drop_duplicates(),how='left')
+    ## Manually add 'UnknownNonMissing' status for other unknown but not missing tokens
+    # Identify tokens with unknown, but not missing, values
+    unk_nonmiss_tokens = full_token_keys[full_token_keys.Value.isin(['088','UNK','077','UNINTERPRETABLE','INDETEMINATE','NOTINTERPRETED','UNKNOWN','NOTKNOWN','UNKNWON'])&(full_token_keys.UnknownNonMissing.isna())&(~full_token_keys.BaseToken.isin(['ERaAngleExtem','DayOfICUStay','ERCTExtem','APAggreg']))].reset_index(drop=True)
 
-## Manually add 'UnknownNonMissing' status for other unknown but not missing tokens
-# Identify tokens with unknown, but not missing, values
-unk_nonmiss_tokens = full_token_keys[full_token_keys.Value.isin(['088','UNK','077','UNINTERPRETABLE','INDETEMINATE','NOTINTERPRETED','UNKNOWN','NOTKNOWN','UNKNWON'])&(full_token_keys.UnknownNonMissing.isna())&(~full_token_keys.BaseToken.isin(['ERaAngleExtem','DayOfICUStay','ERCTExtem','APAggreg']))].reset_index(drop=True)
+    # If convert all indicator values for tokens in the list to true, and all other tokens of the BaseTokens to false
+    full_token_keys.UnknownNonMissing[full_token_keys.Token.isin(unk_nonmiss_tokens.Token)] = True
+    full_token_keys.UnknownNonMissing[full_token_keys.BaseToken.isin(unk_nonmiss_tokens.BaseToken)&(~full_token_keys.Token.isin(unk_nonmiss_tokens.Token))&(full_token_keys.UnknownNonMissing.isna())] = False
 
-# If convert all indicator values for tokens in the list to true, and all other tokens of the BaseTokens to false
-full_token_keys.UnknownNonMissing[full_token_keys.Token.isin(unk_nonmiss_tokens.Token)] = True
-full_token_keys.UnknownNonMissing[full_token_keys.BaseToken.isin(unk_nonmiss_tokens.BaseToken)&(~full_token_keys.Token.isin(unk_nonmiss_tokens.Token))&(full_token_keys.UnknownNonMissing.isna())] = False
+    # If a BaseToken has any nonmissing `UnknownNonMissing` indicators, then impute all missing `UnknownNonMissing` indicators with True
+    full_token_keys.UnknownNonMissing[(full_token_keys.BaseToken.isin(full_token_keys[full_token_keys.UnknownNonMissing.notna()].BaseToken.unique()))&(full_token_keys.UnknownNonMissing.isna())] = False
 
-# If a BaseToken has any nonmissing `UnknownNonMissing` indicators, then impute all missing `UnknownNonMissing` indicators with True
-full_token_keys.UnknownNonMissing[(full_token_keys.BaseToken.isin(full_token_keys[full_token_keys.UnknownNonMissing.notna()].BaseToken.unique()))&(full_token_keys.UnknownNonMissing.isna())] = False
+    # Do manual inspection of all remaining tokens with missing `UnknownNonMissing` indicators
+    missing_unk_nonmiss_indicator_tokens = full_token_keys[full_token_keys.UnknownNonMissing.isna()].reset_index(drop=True)
 
-# Do manual inspection of all remaining tokens with missing `UnknownNonMissing` indicators
-missing_unk_nonmiss_indicator_tokens = full_token_keys[full_token_keys.UnknownNonMissing.isna()].reset_index(drop=True)
+    # Based on manual inspection, all remaining tokens are not `UnknownNonMissing`. Therefore, impute with false
+    full_token_keys.UnknownNonMissing[full_token_keys.UnknownNonMissing.isna()] = False
 
-# Based on manual inspection, all remaining tokens are not `UnknownNonMissing`. Therefore, impute with false
-full_token_keys.UnknownNonMissing[full_token_keys.UnknownNonMissing.isna()] = False
+    ## Fix missing token `Type` designations
+    # If BaseToken starts with 'ERJSON' or 'JSON', categorise into Brain imaging type
+    full_token_keys.Type[full_token_keys.Type.isna()&(full_token_keys.BaseToken.str.startswith('ERJSON')|full_token_keys.BaseToken.str.startswith('JSON'))] = 'Brain Imaging'
 
-## Fix missing token `Type` designations
-# If BaseToken starts with 'ERJSON' or 'JSON', categorise into Brain imaging type
-full_token_keys.Type[full_token_keys.Type.isna()&(full_token_keys.BaseToken.str.startswith('ERJSON')|full_token_keys.BaseToken.str.startswith('JSON'))] = 'Brain Imaging'
+    # If BaseToken starts with 'TIL' or 'TotalTIL', categorise into ICU Monitoring and Management type
+    full_token_keys.Type[full_token_keys.Type.isna()&(full_token_keys.BaseToken.str.startswith('TIL')|full_token_keys.BaseToken.str.contains('TotalTIL')|full_token_keys.BaseToken.isin(['HighIntensityTherapy','TimepointDiff']))] = 'ICU Monitoring and Management'
 
-# If BaseToken starts with 'TIL' or 'TotalTIL', categorise into ICU Monitoring and Management type
-full_token_keys.Type[full_token_keys.Type.isna()&(full_token_keys.BaseToken.str.startswith('TIL')|full_token_keys.BaseToken.str.contains('TotalTIL')|full_token_keys.BaseToken.isin(['HighIntensityTherapy','TimepointDiff']))] = 'ICU Monitoring and Management'
+    # If BaseToken contains 'ICP', categorise into ICU Monitoring and Management type
+    full_token_keys.Type[full_token_keys.Type.isna()&(full_token_keys.BaseToken.str.contains('ICP'))] = 'ICU Monitoring and Management'
 
-# If BaseToken contains 'ICP', categorise into ICU Monitoring and Management type
-full_token_keys.Type[full_token_keys.Type.isna()&(full_token_keys.BaseToken.str.contains('ICP'))] = 'ICU Monitoring and Management'
+    # If BaseToken contains 'SixMonthOutcome', categorise into Discharge Assessment and ICU Stay Summary type
+    full_token_keys.Type[full_token_keys.Type.isna()&(full_token_keys.BaseToken.str.contains('SixMonthOutcome'))] = 'Discharge Assessment and ICU Stay Summary'
 
-# If BaseToken contains 'SixMonthOutcome', categorise into Discharge Assessment and ICU Stay Summary type
-full_token_keys.Type[full_token_keys.Type.isna()&(full_token_keys.BaseToken.str.contains('SixMonthOutcome'))] = 'Discharge Assessment and ICU Stay Summary'
+    # Create new type corresponding to temporal metadata tokens
+    full_token_keys.Type[full_token_keys.Type.isna()&full_token_keys.BaseToken.isin(['DayOfICUStay'])] = 'Day of ICU Stay'
 
-# Create new type corresponding to temporal metadata tokens
-full_token_keys.Type[full_token_keys.Type.isna()&full_token_keys.BaseToken.isin(['DayOfICUStay'])] = 'Day of ICU Stay'
+    ## Fix missing metadata for variables
+    # If a variable is numeric, then it should automatically be ordered and non-binary
+    full_token_keys.Ordered[full_token_keys.Ordered.isna()&full_token_keys.Numeric] = True
+    full_token_keys.Binary[full_token_keys.Binary.isna()&full_token_keys.Numeric] = False
 
-## Fix missing metadata for variables
-# If a variable is numeric, then it should automatically be ordered and non-binary
-full_token_keys.Ordered[full_token_keys.Ordered.isna()&full_token_keys.Numeric] = True
-full_token_keys.Binary[full_token_keys.Binary.isna()&full_token_keys.Numeric] = False
+    # For each variable with missing `Ordered` or `Binary` indicators, determine the unique number of non-missing tokens
+    CountPerBaseToken = full_token_keys[full_token_keys.Ordered.isna()|full_token_keys.Binary.isna()].groupby(['BaseToken'],as_index=False).Missing.aggregate({'Missings':'sum','ValueOptions':'count'}).merge(full_token_keys[full_token_keys.Ordered.isna()|full_token_keys.Binary.isna()].groupby(['BaseToken'],as_index=False).UnknownNonMissing.aggregate({'Unknowns':'sum','ValueOptions':'count'}))
+    CountPerBaseToken['NonMissings'] = CountPerBaseToken.ValueOptions.astype(int) - CountPerBaseToken.Missings.astype(int) - CountPerBaseToken.Unknowns.astype(int)
 
-# For each variable with missing `Ordered` or `Binary` indicators, determine the unique number of non-missing tokens
-CountPerBaseToken = full_token_keys[full_token_keys.Ordered.isna()|full_token_keys.Binary.isna()].groupby(['BaseToken'],as_index=False).Missing.aggregate({'Missings':'sum','ValueOptions':'count'}).merge(full_token_keys[full_token_keys.Ordered.isna()|full_token_keys.Binary.isna()].groupby(['BaseToken'],as_index=False).UnknownNonMissing.aggregate({'Unknowns':'sum','ValueOptions':'count'}))
-CountPerBaseToken['NonMissings'] = CountPerBaseToken.ValueOptions.astype(int) - CountPerBaseToken.Missings.astype(int) - CountPerBaseToken.Unknowns.astype(int)
+    # If variable has 2 or fewer unique non-missing tokens, disqualify it from being ordered
+    full_token_keys.Ordered[full_token_keys.Ordered.isna()&full_token_keys.BaseToken.isin(CountPerBaseToken.BaseToken[CountPerBaseToken.NonMissings <= 2])] = False
 
-# If variable has 2 or fewer unique non-missing tokens, disqualify it from being ordered
-full_token_keys.Ordered[full_token_keys.Ordered.isna()&full_token_keys.BaseToken.isin(CountPerBaseToken.BaseToken[CountPerBaseToken.NonMissings <= 2])] = False
+    # If variable has exactly 2 unique non-missing tokens, mark it as binary. Otherwise, not binary
+    full_token_keys.Binary[full_token_keys.Binary.isna()&full_token_keys.BaseToken.isin(CountPerBaseToken.BaseToken[CountPerBaseToken.NonMissings == 2])] = True
+    full_token_keys.Binary[full_token_keys.Binary.isna()&full_token_keys.BaseToken.isin(CountPerBaseToken.BaseToken[CountPerBaseToken.NonMissings != 2])] = False
 
-# If variable has exactly 2 unique non-missing tokens, mark it as binary. Otherwise, not binary
-full_token_keys.Binary[full_token_keys.Binary.isna()&full_token_keys.BaseToken.isin(CountPerBaseToken.BaseToken[CountPerBaseToken.NonMissings == 2])] = True
-full_token_keys.Binary[full_token_keys.Binary.isna()&full_token_keys.BaseToken.isin(CountPerBaseToken.BaseToken[CountPerBaseToken.NonMissings != 2])] = False
+    # Based on manual inspection: All other tokens are ordered, unless in specified list
+    full_token_keys.Ordered[full_token_keys.Ordered.isna()&full_token_keys.BaseToken.isin(['ERJSONIncidentalFindingsOtherComments','ICUDisSixMonthOutcomeType','ICUReasonNoICP','JSONIncidentalFindingsOtherComments','SixMonthOutcomeType'])] = False
+    full_token_keys.Ordered[full_token_keys.Ordered.isna()] = True
 
-# Based on manual inspection: All other tokens are ordered, unless in specified list
-full_token_keys.Ordered[full_token_keys.Ordered.isna()&full_token_keys.BaseToken.isin(['ERJSONIncidentalFindingsOtherComments','ICUDisSixMonthOutcomeType','ICUReasonNoICP','JSONIncidentalFindingsOtherComments','SixMonthOutcomeType'])] = False
-full_token_keys.Ordered[full_token_keys.Ordered.isna()] = True
+    # Among variables with missing `ClinicianInput` markers, only prognosis variables and ICP reasons are True
+    full_token_keys.ClinicianInput[full_token_keys.ClinicianInput.isna()&(full_token_keys.BaseToken.str.contains('SixMonthOutcome')|full_token_keys.BaseToken.str.startswith('ICUReasonNoICP'))] = True
+    full_token_keys.ClinicianInput[full_token_keys.ClinicianInput.isna()] = False
 
-# Among variables with missing `ClinicianInput` markers, only prognosis variables and ICP reasons are True
-full_token_keys.ClinicianInput[full_token_keys.ClinicianInput.isna()&(full_token_keys.BaseToken.str.contains('SixMonthOutcome')|full_token_keys.BaseToken.str.startswith('ICUReasonNoICP'))] = True
-full_token_keys.ClinicianInput[full_token_keys.ClinicianInput.isna()] = False
+    # Among variables with missing `ICUIntervention` markers, only variables containing 'TIL' and 'HighIntensityTherapy' are True 
+    full_token_keys.ICUIntervention[full_token_keys.ICUIntervention.isna()&(full_token_keys.BaseToken.str.contains('TIL')|(full_token_keys.BaseToken=='HighIntensityTherapy'))] = True
+    full_token_keys.ICUIntervention[full_token_keys.ICUIntervention.isna()] = False
 
-# Among variables with missing `ICUIntervention` markers, only variables containing 'TIL' and 'HighIntensityTherapy' are True 
-full_token_keys.ICUIntervention[full_token_keys.ICUIntervention.isna()&(full_token_keys.BaseToken.str.contains('TIL')|(full_token_keys.BaseToken=='HighIntensityTherapy'))] = True
-full_token_keys.ICUIntervention[full_token_keys.ICUIntervention.isna()] = False
+    ## Add ordering index to Binary and Ordered variables
+    # Correct boolean variable types
+    full_token_keys[['Ordered','Binary','ICUIntervention','ClinicianInput','UnknownNonMissing']] = full_token_keys[['Ordered','Binary','ICUIntervention','ClinicianInput','UnknownNonMissing']].astype(bool)
 
-## Add ordering index to Binary and Ordered variables
-# Correct boolean variable types
-full_token_keys[['Ordered','Binary','ICUIntervention','ClinicianInput','UnknownNonMissing']] = full_token_keys[['Ordered','Binary','ICUIntervention','ClinicianInput','UnknownNonMissing']].astype(bool)
+    # If Binary or Ordered variables have less than 2 nonmissing options in dataset, remove Binary or Ordered label
+    CountPerBaseToken = full_token_keys.groupby(['BaseToken','Ordered','Binary'],as_index=False).Missing.aggregate({'Missings':'sum','ValueOptions':'count'}).merge(full_token_keys.groupby(['BaseToken','Ordered','Binary'],as_index=False).UnknownNonMissing.aggregate({'Unknowns':'sum','ValueOptions':'count'}))
+    CountPerBaseToken['NonMissings'] = CountPerBaseToken.ValueOptions.astype(int) - CountPerBaseToken.Missings.astype(int) - CountPerBaseToken.Unknowns.astype(int)
+    full_token_keys.Binary[full_token_keys.BaseToken.isin(CountPerBaseToken[CountPerBaseToken.Binary&(CountPerBaseToken.NonMissings != 2)].BaseToken.unique())] = False
+    full_token_keys.Ordered[full_token_keys.BaseToken.isin(CountPerBaseToken[CountPerBaseToken.Ordered&(CountPerBaseToken.NonMissings == 1)].BaseToken.unique())] = False
 
-# If Binary or Ordered variables have less than 2 nonmissing options in dataset, remove Binary or Ordered label
-CountPerBaseToken = full_token_keys.groupby(['BaseToken','Ordered','Binary'],as_index=False).Missing.aggregate({'Missings':'sum','ValueOptions':'count'}).merge(full_token_keys.groupby(['BaseToken','Ordered','Binary'],as_index=False).UnknownNonMissing.aggregate({'Unknowns':'sum','ValueOptions':'count'}))
-CountPerBaseToken['NonMissings'] = CountPerBaseToken.ValueOptions.astype(int) - CountPerBaseToken.Missings.astype(int) - CountPerBaseToken.Unknowns.astype(int)
-full_token_keys.Binary[full_token_keys.BaseToken.isin(CountPerBaseToken[CountPerBaseToken.Binary&(CountPerBaseToken.NonMissings != 2)].BaseToken.unique())] = False
-full_token_keys.Ordered[full_token_keys.BaseToken.isin(CountPerBaseToken[CountPerBaseToken.Ordered&(CountPerBaseToken.NonMissings == 1)].BaseToken.unique())] = False
+    # Initialise column for storing ordering index for Binary or Ordered variables
+    full_token_keys['OrderIdx'] = np.nan
 
-# Initialise column for storing ordering index for Binary or Ordered variables
-full_token_keys['OrderIdx'] = np.nan
+    # Sort full token dataframe alphabetically
+    full_token_keys = full_token_keys.sort_values(by=['BaseToken','Token'],ignore_index=True)
 
-# Sort full token dataframe alphabetically
-full_token_keys = full_token_keys.sort_values(by=['BaseToken','Token'],ignore_index=True)
+    # Iterate through Numeric variables and order values alphabetically
+    numeric_vars = full_token_keys[full_token_keys.Numeric].BaseToken.unique()
 
-# Iterate through Numeric variables and order values alphabetically
-numeric_vars = full_token_keys[full_token_keys.Numeric].BaseToken.unique()
+    # Iterate through Numeric variables and order values alphabetically
+    for curr_var in tqdm(numeric_vars,'Iterating through Numeric variables for ordering'):    
+        full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = np.arange(full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].shape[0])
 
-# Iterate through Numeric variables and order values alphabetically
-for curr_var in tqdm(numeric_vars,'Iterating through Numeric variables for ordering'):    
-    full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = np.arange(full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].shape[0])
+    # Identify orderings in legacy dictionary which would match ordering in new dictionary
+    legacy_ordering_token_ct = legacy_v2_token_key[(legacy_v2_token_key.OrderIdx.notna())&(~legacy_v2_token_key.Numeric)].groupby('BaseToken',as_index=False).Token.count().rename(columns={'Token':'LegacyCount'})
+    new_ordering_token_ct = full_token_keys[(full_token_keys.BaseToken.isin(legacy_ordering_token_ct.BaseToken))&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].groupby('BaseToken',as_index=False).Token.count().rename(columns={'Token':'NewCount'})
+    ordering_token_ct = new_ordering_token_ct.merge(legacy_ordering_token_ct,how='left')
+    ordering_token_ct = ordering_token_ct[ordering_token_ct.NewCount == ordering_token_ct.LegacyCount].reset_index(drop=True)
 
-# Identify orderings in legacy dictionary which would match ordering in new dictionary
-legacy_ordering_token_ct = legacy_v2_token_key[(legacy_v2_token_key.OrderIdx.notna())&(~legacy_v2_token_key.Numeric)].groupby('BaseToken',as_index=False).Token.count().rename(columns={'Token':'LegacyCount'})
-new_ordering_token_ct = full_token_keys[(full_token_keys.BaseToken.isin(legacy_ordering_token_ct.BaseToken))&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].groupby('BaseToken',as_index=False).Token.count().rename(columns={'Token':'NewCount'})
-ordering_token_ct = new_ordering_token_ct.merge(legacy_ordering_token_ct,how='left')
-ordering_token_ct = ordering_token_ct[ordering_token_ct.NewCount == ordering_token_ct.LegacyCount].reset_index(drop=True)
+    # Place legacy ordering indices onto current dictionary
+    full_token_keys = full_token_keys.merge(legacy_v2_token_key[(legacy_v2_token_key.BaseToken.isin(ordering_token_ct.BaseToken))&(legacy_v2_token_key.OrderIdx.notna())][['BaseToken','Value','OrderIdx']].rename(columns={'OrderIdx':'LegacyOrderIdx'}),how='left')
+    full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.LegacyOrderIdx.notna())] = full_token_keys.LegacyOrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.LegacyOrderIdx.notna())]
+    full_token_keys = full_token_keys.drop(columns='LegacyOrderIdx')
 
-# Place legacy ordering indices onto current dictionary
-full_token_keys = full_token_keys.merge(legacy_v2_token_key[(legacy_v2_token_key.BaseToken.isin(ordering_token_ct.BaseToken))&(legacy_v2_token_key.OrderIdx.notna())][['BaseToken','Value','OrderIdx']].rename(columns={'OrderIdx':'LegacyOrderIdx'}),how='left')
-full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.LegacyOrderIdx.notna())] = full_token_keys.LegacyOrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.LegacyOrderIdx.notna())]
-full_token_keys = full_token_keys.drop(columns='LegacyOrderIdx')
+    # Iterate through Binary variables with missing ordering and order values alphabetically
+    for curr_var in tqdm(full_token_keys[(full_token_keys.Binary)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())].BaseToken.unique(),'Iterating through remaining Binary variables for ordering'):    
+        full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = np.arange(full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].shape[0])
 
-# Iterate through Binary variables with missing ordering and order values alphabetically
-for curr_var in tqdm(full_token_keys[(full_token_keys.Binary)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())].BaseToken.unique(),'Iterating through remaining Binary variables for ordering'):    
-    full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = np.arange(full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].shape[0])
+    # Order JSON compression variables
+    compression_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())&(full_token_keys.Value=='COMPTRESSED')].BaseToken.unique()
+    full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(compression_vars))&(full_token_keys.Value=='NORMAL')] = 0
+    full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(compression_vars))&(full_token_keys.Value=='COMPTRESSED')] = 1
+    full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(compression_vars))&(full_token_keys.Value=='ABSENT')] = 2
 
-# Order JSON compression variables
-compression_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())&(full_token_keys.Value=='COMPTRESSED')].BaseToken.unique()
-full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(compression_vars))&(full_token_keys.Value=='NORMAL')] = 0
-full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(compression_vars))&(full_token_keys.Value=='COMPTRESSED')] = 1
-full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(compression_vars))&(full_token_keys.Value=='ABSENT')] = 2
+    # Order JSON TSAH variables
+    tsah_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())&(full_token_keys.Value=='MODERATE')].BaseToken.unique()
+    full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(tsah_vars))&(full_token_keys.Value=='TRACE')] = 0
+    full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(tsah_vars))&(full_token_keys.Value=='MODERATE')] = 1
+    full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(tsah_vars))&(full_token_keys.Value=='FULL')] = 2
 
-# Order JSON TSAH variables
-tsah_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())&(full_token_keys.Value=='MODERATE')].BaseToken.unique()
-full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(tsah_vars))&(full_token_keys.Value=='TRACE')] = 0
-full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(tsah_vars))&(full_token_keys.Value=='MODERATE')] = 1
-full_token_keys.OrderIdx[(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.isin(tsah_vars))&(full_token_keys.Value=='FULL')] = 2
+    # Order variables with only numbers alphabetically
+    alpha_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())&(full_token_keys.Value.apply(lambda x: re.search('[a-zA-Z]', x)))].BaseToken.unique()
+    num_vars = np.setdiff1d(full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())].BaseToken.unique(),alpha_vars)
+    for curr_var in tqdm(num_vars,'Iterating through Ordered variables only containing numeric characters for ordering'):    
+        full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = np.arange(full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].shape[0])
 
-# Order variables with only numbers alphabetically
-alpha_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())&(full_token_keys.Value.apply(lambda x: re.search('[a-zA-Z]', x)))].BaseToken.unique()
-num_vars = np.setdiff1d(full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())].BaseToken.unique(),alpha_vars)
-for curr_var in tqdm(num_vars,'Iterating through Ordered variables only containing numeric characters for ordering'):    
-    full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = np.arange(full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].shape[0])
+    # Order variables with "DEC" for decimal encoding
+    dec_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())&(full_token_keys.Value.str.contains('DEC'))].BaseToken.unique()
+    for curr_var in tqdm(dec_vars,'Iterating through Ordered variables with DEC encoding for ordering'):    
+        full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = (full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].Value.str.replace('DEC','.').astype(float).rank()-1)
 
-# Order variables with "DEC" for decimal encoding
-dec_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())&(full_token_keys.Value.str.contains('DEC'))].BaseToken.unique()
-for curr_var in tqdm(dec_vars,'Iterating through Ordered variables with DEC encoding for ordering'):    
-    full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = (full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].Value.str.replace('DEC','.').astype(float).rank()-1)
+    # Order outcome prognosis variables based on outcome types
+    prog_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.str.contains('Outcome'))].BaseToken.unique()
+    for curr_var in tqdm(prog_vars,'Iterating through Ordered variables with outcome prognoses for ordering'):    
+        full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = (full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].Value.map({'D':0,'V':1,'SD':2,'MD':3,'GR':4}).rank()-1)
 
-# Order outcome prognosis variables based on outcome types
-prog_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())&(full_token_keys.BaseToken.str.contains('Outcome'))].BaseToken.unique()
-for curr_var in tqdm(prog_vars,'Iterating through Ordered variables with outcome prognoses for ordering'):    
-    full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = (full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].Value.map({'D':0,'V':1,'SD':2,'MD':3,'GR':4}).rank()-1)
+    # Rank remaining variables alphabetically
+    remaining_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())].BaseToken.unique()
+    for curr_var in tqdm(remaining_vars,'Iterating through remaining Ordered variables for ordering'):    
+        full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = np.arange(full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].shape[0])
 
-# Rank remaining variables alphabetically
-remaining_vars = full_token_keys[(full_token_keys.Ordered)&((~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing))&(full_token_keys.OrderIdx.isna())].BaseToken.unique()
-for curr_var in tqdm(remaining_vars,'Iterating through remaining Ordered variables for ordering'):    
-    full_token_keys.OrderIdx[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)] = np.arange(full_token_keys[(full_token_keys.BaseToken==curr_var)&(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].shape[0])
+    ## Save fully formatted token dictionary onto token directory
+    # Reorder columns
+    full_token_keys.insert(3,'OrderIdx',full_token_keys.pop('OrderIdx'))
+    full_token_keys.insert(5,'UnknownNonMissing',full_token_keys.pop('UnknownNonMissing'))
 
-## Save fully formatted token dictionary onto token directory
-# Reorder columns
-full_token_keys.insert(3,'OrderIdx',full_token_keys.pop('OrderIdx'))
-full_token_keys.insert(5,'UnknownNonMissing',full_token_keys.pop('UnknownNonMissing'))
+    # Save file
+    full_token_keys.to_excel(os.path.join(tokens_dir,'pre_check_TILTomorrow_full_token_keys_'+VERSION+'.xlsx'),index=False)
 
-# Save file
-full_token_keys.to_excel(os.path.join(tokens_dir,'pre_check_TILTomorrow_full_token_keys_'+VERSION+'.xlsx'),index=False)
+else:
+    # Determine last token dictionary version
+    LAST_VERSION = 'v'+str(np.floor(float(VERSION.replace('-','.').replace('v',''))-1)).replace('.','-')
+    
+    # If not the first version, load the last version's token dictionary
+    compiled_legacy_base_token_key = pd.read_excel(os.path.join(tokens_dir,'TILTomorrow_full_token_keys_'+LAST_VERSION+'.xlsx'))
+    compiled_legacy_base_token_key.Token = compiled_legacy_base_token_key.Token.fillna('')
+    compiled_legacy_base_token_key.BaseToken = compiled_legacy_base_token_key.BaseToken.fillna('')
+
+    # Merge base-token information onto current compiled token vocabulary
+    full_token_keys = full_token_keys.merge(compiled_legacy_base_token_key.drop(columns=['Token','Missing','Numeric','Baseline','Discharge']),how='left')
+    
+    ## Save fully formatted token dictionary
+    # Sort full token dataframe alphabetically
+    full_token_keys = full_token_keys.sort_values(by=['BaseToken','Token'],ignore_index=True)
+
+    # Reorder columns
+    full_token_keys.insert(3,'OrderIdx',full_token_keys.pop('OrderIdx'))
+    full_token_keys.insert(5,'UnknownNonMissing',full_token_keys.pop('UnknownNonMissing'))
+
+    # Save file
+    full_token_keys.to_excel(os.path.join(tokens_dir,'pre_check_TILTomorrow_full_token_keys_'+VERSION+'.xlsx'),index=False)
 
 ### III. Categorize tokens from each patient's ICU stay
 ## Identify and characterise all TILTomorrow token dictionaries
