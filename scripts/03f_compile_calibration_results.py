@@ -48,13 +48,13 @@ from functions.analysis import prepare_df
 
 ## Define parameters for model training
 # Set version code
-VERSION = 'v1-0'
+VERSION = 'v2-0'
 
 # Define number of cores for parallel processing
 NUM_CORES = multiprocessing.cpu_count()
 
 # Window indices at which to calculate performance metrics
-PERF_WINDOW_INDICES = [1,2,3,4,5,6,9,13,20]
+PERF_WINDOW_INDICES = [1,2,3,4,5,6,9,13]
 
 # Number of resamples for testing set bootstrapping
 NUM_RESAMP = 1000

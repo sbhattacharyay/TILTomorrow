@@ -67,13 +67,13 @@ from functions.analysis import prepare_df, calc_ORC, calc_thresh_calibration
 
 ## Define parameters for model training
 # Set version code
-VERSION = 'v1-0'
+VERSION = 'v2-0'
 
 # Define number of cores for parallel processing
 NUM_CORES = multiprocessing.cpu_count()
 
 # Window indices at which to calculate performance metrics
-PERF_WINDOW_INDICES = [1,2,3,4,5,6,9,13,20]
+PERF_WINDOW_INDICES = [1,2,3,4,5,6,9,13]
 
 ## Define and create relevant directories
 # Initialise model output directory based on version code

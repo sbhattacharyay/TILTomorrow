@@ -161,7 +161,8 @@ if not os.path.exists(os.path.join(model_dir,'tuning_grid.csv')):
 else:
     
     # Load optimised tuning grid
-    tuning_grid = pd.read_csv(os.path.join(model_dir,'tuning_grid.csv'))
+#     tuning_grid = pd.read_csv(os.path.join(model_dir,'tuning_grid.csv'))
+    tuning_grid = pd.read_csv(os.path.join(model_dir,'remaining_tuning_grid.csv'))
 
 ## Manually determine repeats and folds to use for current training session
 tuning_grid = tuning_grid[tuning_grid.REPEAT.isin([1])].reset_index(drop=True)
