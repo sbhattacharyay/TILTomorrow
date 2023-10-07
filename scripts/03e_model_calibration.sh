@@ -6,10 +6,10 @@
 #SBATCH --ntasks=1
 #SBATCH --time=01:00:00
 #SBATCH --mem=27040
-#SBATCH --array=0-539
+#SBATCH --array=0-479
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=sb2406@cam.ac.uk
-#SBATCH --output=/home/sb2406/rds/hpc-work/TILTomorrow_model_performance/v2-0/hpc_logs/calibration/TILTomorrow_val_calibration_v1-0_trial_%a.out
+#SBATCH --output=/home/sb2406/rds/hpc-work/TILTomorrow_model_performance/v2-0/hpc_logs/calibration/TILTomorrow_val_calibration_v2-0_trial_%a.out
 
 . /etc/profile.d/modules.sh                # Leave this line (enables the module command)
 module load rhel8/default-icl

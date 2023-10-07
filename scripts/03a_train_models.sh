@@ -1,8 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=v2_uncalibrated_TILTomorrow_training
 #SBATCH --time=01:30:00
-#SBATCH --mem=54080
-#SBATCH --array=0-132
+#SBATCH --array=0-1439
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

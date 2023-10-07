@@ -138,19 +138,19 @@ uncalib_TILBasic_test_outputs = load_model_outputs(pred_file_info_df[(pred_file_
                                                    True,
                                                    'Loading uncalibrated TomorrowTILBasic testing set outputs').sort_values(by=['REPEAT','FOLD','TUNE_IDX','GUPI']).reset_index(drop=True)
 
-# Load and compile uncalibrated TomorrowHighIntensityTherapy validation set outputs
-uncalib_highTIL_val_outputs = load_model_outputs(pred_file_info_df[(pred_file_info_df.CALIBRATION=='uncalibrated')&
-                                                                   (pred_file_info_df.SET=='val')&
-                                                                   (pred_file_info_df.OUTCOME_LABEL=='TomorrowHighIntensityTherapy')].reset_index(drop=True),
-                                                 True,
-                                                 'Loading uncalibrated TomorrowHighIntensityTherapy validation set outputs').sort_values(by=['REPEAT','FOLD','TUNE_IDX','GUPI']).reset_index(drop=True)
+# # Load and compile uncalibrated TomorrowHighIntensityTherapy validation set outputs
+# uncalib_highTIL_val_outputs = load_model_outputs(pred_file_info_df[(pred_file_info_df.CALIBRATION=='uncalibrated')&
+#                                                                    (pred_file_info_df.SET=='val')&
+#                                                                    (pred_file_info_df.OUTCOME_LABEL=='TomorrowHighIntensityTherapy')].reset_index(drop=True),
+#                                                  True,
+#                                                  'Loading uncalibrated TomorrowHighIntensityTherapy validation set outputs').sort_values(by=['REPEAT','FOLD','TUNE_IDX','GUPI']).reset_index(drop=True)
 
-# Load and compile uncalibrated TomorrowHighIntensityTherapy testing set outputs
-uncalib_highTIL_test_outputs = load_model_outputs(pred_file_info_df[(pred_file_info_df.CALIBRATION=='uncalibrated')&
-                                                                    (pred_file_info_df.SET=='test')&
-                                                                    (pred_file_info_df.OUTCOME_LABEL=='TomorrowHighIntensityTherapy')].reset_index(drop=True),
-                                                  True,
-                                                  'Loading uncalibrated TomorrowHighIntensityTherapy testing set outputs').sort_values(by=['REPEAT','FOLD','TUNE_IDX','GUPI']).reset_index(drop=True)
+# # Load and compile uncalibrated TomorrowHighIntensityTherapy testing set outputs
+# uncalib_highTIL_test_outputs = load_model_outputs(pred_file_info_df[(pred_file_info_df.CALIBRATION=='uncalibrated')&
+#                                                                     (pred_file_info_df.SET=='test')&
+#                                                                     (pred_file_info_df.OUTCOME_LABEL=='TomorrowHighIntensityTherapy')].reset_index(drop=True),
+#                                                   True,
+#                                                   'Loading uncalibrated TomorrowHighIntensityTherapy testing set outputs').sort_values(by=['REPEAT','FOLD','TUNE_IDX','GUPI']).reset_index(drop=True)
 
 ## Save validation and testing model output files
 # Save compiled uncalibrated TomorrowTILBasic validation set outputs
@@ -159,11 +159,11 @@ uncalib_TILBasic_val_outputs.to_pickle(os.path.join(model_dir,'TomorrowTILBasic_
 # Save compiled uncalibrated TomorrowTILBasic testing set outputs
 uncalib_TILBasic_test_outputs.to_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_test_uncalibrated_outputs.pkl'))
 
-# Save compiled uncalibrated TomorrowHighIntensityTherapy validation set outputs
-uncalib_highTIL_val_outputs.to_pickle(os.path.join(model_dir,'TomorrowHighIntensityTherapy_compiled_val_uncalibrated_outputs.pkl'))
+# # Save compiled uncalibrated TomorrowHighIntensityTherapy validation set outputs
+# uncalib_highTIL_val_outputs.to_pickle(os.path.join(model_dir,'TomorrowHighIntensityTherapy_compiled_val_uncalibrated_outputs.pkl'))
 
-# Save compiled uncalibrated TomorrowHighIntensityTherapy testing set outputs
-uncalib_highTIL_test_outputs.to_pickle(os.path.join(model_dir,'TomorrowHighIntensityTherapy_compiled_test_uncalibrated_outputs.pkl'))
+# # Save compiled uncalibrated TomorrowHighIntensityTherapy testing set outputs
+# uncalib_highTIL_test_outputs.to_pickle(os.path.join(model_dir,'TomorrowHighIntensityTherapy_compiled_test_uncalibrated_outputs.pkl'))
 
 ## If `CLEAN_OUTPUT_FILES` set to True, then remove individual output files after compiling
 if CLEAN_OUTPUT_FILES:
@@ -176,8 +176,8 @@ if CLEAN_OUTPUT_FILES:
 # Load compiled uncalibrated TomorrowTILBasic validation set outputs
 uncalib_TILBasic_val_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_val_uncalibrated_outputs.pkl'))
 
-# Load compiled uncalibrated TomorrowHighIntensityTherapy validation set outputs
-uncalib_highTIL_val_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowHighIntensityTherapy_compiled_val_uncalibrated_outputs.pkl'))
+# # Load compiled uncalibrated TomorrowHighIntensityTherapy validation set outputs
+# uncalib_highTIL_val_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowHighIntensityTherapy_compiled_val_uncalibrated_outputs.pkl'))
 
 # Calculate intermediate values for TomorrowTILBasic validation set outputs
 prob_cols = [col for col in uncalib_TILBasic_val_outputs if col.startswith('Pr(TILBasic=')]
@@ -188,26 +188,26 @@ index_vector = np.array(list(range(prob_matrix.shape[1])), ndmin=2).T
 uncalib_TILBasic_val_outputs['ExpectedValue'] = np.matmul(prob_matrix.values,index_vector)
 uncalib_TILBasic_val_outputs['PredLabel'] = prob_matrix.idxmax(axis=1)
 
-# Calculate intermediate values for TomorrowHighIntensityTherapy validation set outputs
-uncalib_highTIL_val_outputs['ExpectedValue'] = uncalib_highTIL_val_outputs['Pr(HighTIL=1)']
-uncalib_highTIL_val_outputs['PredLabel'] = (uncalib_highTIL_val_outputs['Pr(HighTIL=1)'] >= 0.5).astype(int)
+# # Calculate intermediate values for TomorrowHighIntensityTherapy validation set outputs
+# uncalib_highTIL_val_outputs['ExpectedValue'] = uncalib_highTIL_val_outputs['Pr(HighTIL=1)']
+# uncalib_highTIL_val_outputs['PredLabel'] = (uncalib_highTIL_val_outputs['Pr(HighTIL=1)'] >= 0.5).astype(int)
 
 # Prepare validation set output dataframes for performance calculation
 filt_TILBasic_val_outputs = prepare_df(uncalib_TILBasic_val_outputs,PERF_WINDOW_INDICES)
-filt_highTIL_val_outputs = prepare_df(uncalib_highTIL_val_outputs,PERF_WINDOW_INDICES)
+# filt_highTIL_val_outputs = prepare_df(uncalib_highTIL_val_outputs,PERF_WINDOW_INDICES)
 
 ## Calculate performance metrics on validation set outputs
 # Calculate ORCs of TIL-Basic model on validation set outputs
 uncalib_TILBasic_val_set_ORCs = calc_ORC(filt_TILBasic_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set ORC')
 
-# Calculate AUCs of high TIL intensity model on validation set outputs
-uncalib_highTIL_val_set_AUCs = calc_AUC(filt_highTIL_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set AUC')
+# # Calculate AUCs of high TIL intensity model on validation set outputs
+# uncalib_highTIL_val_set_AUCs = calc_AUC(filt_highTIL_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set AUC')
 
 # Calculate Somers' D of TIL-Basic model on validation set outputs
 uncalib_TILBasic_val_set_Somers_D = calc_Somers_D(filt_TILBasic_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set Somers D')
 
-# Calculate Somers' D of high TIL intensity model on validation set outputs
-uncalib_highTIL_val_set_Somers_D = calc_Somers_D(filt_highTIL_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set Somers D')
+# # Calculate Somers' D of high TIL intensity model on validation set outputs
+# uncalib_highTIL_val_set_Somers_D = calc_Somers_D(filt_highTIL_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set Somers D')
 
 # Calculate threshold-level calibration metrics of TIL-Basic model on validation set outputs
 uncalib_TILBasic_val_set_thresh_calibration = calc_thresh_calibration(filt_TILBasic_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set threshold-level calibration metrics')
@@ -217,27 +217,27 @@ macro_average_thresh_calibration = uncalib_TILBasic_val_set_thresh_calibration.g
 macro_average_thresh_calibration.insert(2,'THRESHOLD',['Average' for idx in range(macro_average_thresh_calibration.shape[0])])
 uncalib_TILBasic_val_set_thresh_calibration = pd.concat([uncalib_TILBasic_val_set_thresh_calibration,macro_average_thresh_calibration],ignore_index=True).sort_values(by=['TUNE_IDX','WINDOW_IDX','THRESHOLD']).reset_index(drop=True)
 
-# Calculate binary calibration metrics of high TIL intensity model on validation set outputs
-uncalib_highTIL_val_set_calibration = calc_binary_calibration(filt_highTIL_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set binary calibration metrics')
+# # Calculate binary calibration metrics of high TIL intensity model on validation set outputs
+# uncalib_highTIL_val_set_calibration = calc_binary_calibration(filt_highTIL_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set binary calibration metrics')
 
 ## Save performance metrics from validation outputs
 # Save ORCs of TIL-Basic model from validation set outputs
 uncalib_TILBasic_val_set_ORCs.to_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_val_uncalibrated_ORCs.csv'),index=False)
 
-# Save AUCs of high TIL intensity model from validation set outputs
-uncalib_highTIL_val_set_AUCs.to_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_AUCs.csv'),index=False)
+# # Save AUCs of high TIL intensity model from validation set outputs
+# uncalib_highTIL_val_set_AUCs.to_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_AUCs.csv'),index=False)
 
 # Save Somers' D of TIL-Basic model from validation set outputs
 uncalib_TILBasic_val_set_Somers_D.to_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_val_uncalibrated_Somers_D.csv'),index=False)
 
-# Save Somers' D of high TIL intensity model from validation set outputs
-uncalib_highTIL_val_set_Somers_D.to_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_Somers_D.csv'),index=False)
+# # Save Somers' D of high TIL intensity model from validation set outputs
+# uncalib_highTIL_val_set_Somers_D.to_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_Somers_D.csv'),index=False)
 
 # Save threshold-level calibration metrics of TIL-Basic model from validation set outputs
 uncalib_TILBasic_val_set_thresh_calibration.to_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_val_uncalibrated_calibration_metrics.csv'),index=False)
 
-# Save binary calibration metrics of high TIL intensity model from validation set outputs
-uncalib_highTIL_val_set_calibration.to_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_calibration_metrics.csv'),index=False)
+# # Save binary calibration metrics of high TIL intensity model from validation set outputs
+# uncalib_highTIL_val_set_calibration.to_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_calibration_metrics.csv'),index=False)
 
 ## Determine optimally performing tuning configurations based on average performance metrics
 # Calculate average ORC for each tuning index
@@ -247,12 +247,12 @@ ave_uncalib_val_set_ORCs = uncalib_TILBasic_val_set_ORCs.groupby(['TUNE_IDX','WI
 TILBasic_opt_val_ORC_configs = ave_uncalib_val_set_ORCs.loc[ave_uncalib_val_set_ORCs.groupby('WINDOW_IDX').ORC.idxmax()].reset_index(drop=True)
 TILBasic_opt_val_ORC_configs.to_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_optimal_val_set_discrimination_configurations.csv'),index=False)
 
-# Calculate average AUC for each tuning index
-ave_uncalib_val_set_AUCs = uncalib_highTIL_val_set_AUCs.groupby(['TUNE_IDX','WINDOW_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'AUC'}).sort_values(by='AUC',ascending=False).reset_index(drop=True)
+# # Calculate average AUC for each tuning index
+# ave_uncalib_val_set_AUCs = uncalib_highTIL_val_set_AUCs.groupby(['TUNE_IDX','WINDOW_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'AUC'}).sort_values(by='AUC',ascending=False).reset_index(drop=True)
 
-# For each `WINDOW_IDX`, identify the optimal tuning index
-highTIL_opt_val_AUC_configs = ave_uncalib_val_set_AUCs.loc[ave_uncalib_val_set_AUCs.groupby('WINDOW_IDX').AUC.idxmax()].reset_index(drop=True)
-highTIL_opt_val_AUC_configs.to_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_optimal_val_set_discrimination_configurations.csv'),index=False)
+# # For each `WINDOW_IDX`, identify the optimal tuning index
+# highTIL_opt_val_AUC_configs = ave_uncalib_val_set_AUCs.loc[ave_uncalib_val_set_AUCs.groupby('WINDOW_IDX').AUC.idxmax()].reset_index(drop=True)
+# highTIL_opt_val_AUC_configs.to_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_optimal_val_set_discrimination_configurations.csv'),index=False)
 
 # Calculate average threshold-level calibration slopes for each tuning index
 ave_uncalib_val_set_thresh_calibration = uncalib_TILBasic_val_set_thresh_calibration[(uncalib_TILBasic_val_set_thresh_calibration.THRESHOLD=='Average')&(uncalib_TILBasic_val_set_thresh_calibration.METRIC=='CALIB_SLOPE')].groupby(['TUNE_IDX','WINDOW_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'CALIB_SLOPE'})
@@ -263,24 +263,24 @@ ave_uncalib_val_set_thresh_calibration = ave_uncalib_val_set_thresh_calibration.
 TILBasic_opt_val_calibration_configs = ave_uncalib_val_set_thresh_calibration.loc[ave_uncalib_val_set_thresh_calibration.groupby('WINDOW_IDX').ERROR.idxmin()].reset_index(drop=True)
 TILBasic_opt_val_calibration_configs.to_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_optimal_val_set_calibration_configurations.csv'),index=False)
 
-# Calculate average binary calibration slope for each tuning index
-ave_uncalib_val_set_binary_calibration = uncalib_highTIL_val_set_calibration[(uncalib_highTIL_val_set_calibration.METRIC=='CALIB_SLOPE')].groupby(['TUNE_IDX','WINDOW_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'CALIB_SLOPE'})
-ave_uncalib_val_set_binary_calibration['ERROR'] = (ave_uncalib_val_set_binary_calibration.CALIB_SLOPE - 1).abs()
-ave_uncalib_val_set_binary_calibration = ave_uncalib_val_set_binary_calibration.sort_values(by='ERROR',ascending=True).reset_index(drop=True)
+# # Calculate average binary calibration slope for each tuning index
+# ave_uncalib_val_set_binary_calibration = uncalib_highTIL_val_set_calibration[(uncalib_highTIL_val_set_calibration.METRIC=='CALIB_SLOPE')].groupby(['TUNE_IDX','WINDOW_IDX'],as_index=False).VALUE.mean().rename(columns={'VALUE':'CALIB_SLOPE'})
+# ave_uncalib_val_set_binary_calibration['ERROR'] = (ave_uncalib_val_set_binary_calibration.CALIB_SLOPE - 1).abs()
+# ave_uncalib_val_set_binary_calibration = ave_uncalib_val_set_binary_calibration.sort_values(by='ERROR',ascending=True).reset_index(drop=True)
 
-# For each `WINDOW_IDX`, identify the optimal tuning index
-highTIL_opt_val_calibration_configs = ave_uncalib_val_set_binary_calibration.loc[ave_uncalib_val_set_binary_calibration.groupby('WINDOW_IDX').ERROR.idxmin()].reset_index(drop=True)
-highTIL_opt_val_calibration_configs.to_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_optimal_val_set_calibration_configurations.csv'),index=False)
+# # For each `WINDOW_IDX`, identify the optimal tuning index
+# highTIL_opt_val_calibration_configs = ave_uncalib_val_set_binary_calibration.loc[ave_uncalib_val_set_binary_calibration.groupby('WINDOW_IDX').ERROR.idxmin()].reset_index(drop=True)
+# highTIL_opt_val_calibration_configs.to_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_optimal_val_set_calibration_configurations.csv'),index=False)
 
 ### IV. Create bootstrapping resamples for dropping out poorly calibrated configurations
 ## Load and prepare validation set outputs
 # Load compiled validation set outputs
 uncalib_TILBasic_val_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_val_uncalibrated_outputs.pkl'))
-uncalib_highTIL_val_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowHighIntensityTherapy_compiled_val_uncalibrated_outputs.pkl'))
+# uncalib_highTIL_val_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowHighIntensityTherapy_compiled_val_uncalibrated_outputs.pkl'))
 
 # Preare compiled validation set outputs to desired performance window indices
 filt_TILBasic_val_outputs = prepare_df(uncalib_TILBasic_val_outputs,PERF_WINDOW_INDICES)
-filt_highTIL_val_outputs = prepare_df(uncalib_highTIL_val_outputs,PERF_WINDOW_INDICES)
+# filt_highTIL_val_outputs = prepare_df(uncalib_highTIL_val_outputs,PERF_WINDOW_INDICES)
 
 ## Create bootstrapping resamples
 # Create array of unique validation set GUPIs
