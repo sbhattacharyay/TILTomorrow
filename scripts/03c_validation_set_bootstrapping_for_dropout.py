@@ -81,18 +81,11 @@ bs_resamples = pd.read_pickle(os.path.join(model_perf_dir,'val_dropout_bs_resamp
 # Load validation set ORCs
 uncalib_TILBasic_val_set_ORCs = pd.read_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_val_uncalibrated_ORCs.csv'))
 
-# # Load validation set AUCs
-# uncalib_highTIL_val_set_AUCs = pd.read_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_AUCs.csv'))
-
 # Load validation set threshold-level calibration metrics
 uncalib_TILBasic_val_set_calibration = pd.read_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_val_uncalibrated_calibration_metrics.csv'))
 
-# # Load validation set AUCs
-# uncalib_highTIL_val_set_calibration = pd.read_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_calibration_metrics.csv'))
-
 # Load optimal tuning configurations for each window index based on validation set performance
 opt_TILBasic_val_calibration_configs = pd.read_csv(os.path.join(model_perf_dir,'TomorrowTILBasic_optimal_val_set_calibration_configurations.csv'))
-# opt_highTIL_val_calibration_configs = pd.read_csv(os.path.join(model_perf_dir,'TomorrowHighIntensityTherapy_optimal_val_set_calibration_configurations.csv'))
 
 ### II. Calculate validation set calibration and discrimination based on provided bootstrapping resample row index
 # Argument-induced bootstrapping functions
@@ -104,11 +97,9 @@ def main(array_task_id):
     
     # Load compiled validation set outputs
     uncalib_TILBasic_val_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_val_uncalibrated_outputs.pkl'))
-#     uncalib_highTIL_val_outputs = pd.read_pickle(os.path.join(model_dir,'TomorrowHighIntensityTherapy_compiled_val_uncalibrated_outputs.pkl'))
 
     # Filter validation set outputs to current GUPI set
     uncalib_TILBasic_val_outputs = uncalib_TILBasic_val_outputs[uncalib_TILBasic_val_outputs.GUPI.isin(curr_GUPIs)].reset_index(drop=True)
-#     uncalib_highTIL_val_outputs = uncalib_highTIL_val_outputs[uncalib_highTIL_val_outputs.GUPI.isin(curr_GUPIs)].reset_index(drop=True)
     
     # Calculate intermediate values for TomorrowTILBasic validation set outputs
     prob_cols = [col for col in uncalib_TILBasic_val_outputs if col.startswith('Pr(TILBasic=')]
@@ -119,26 +110,15 @@ def main(array_task_id):
     uncalib_TILBasic_val_outputs['ExpectedValue'] = np.matmul(prob_matrix.values,index_vector)
     uncalib_TILBasic_val_outputs['PredLabel'] = prob_matrix.idxmax(axis=1)
 
-#     # Calculate intermediate values for TomorrowHighIntensityTherapy validation set outputs
-#     uncalib_highTIL_val_outputs['ExpectedValue'] = uncalib_highTIL_val_outputs['Pr(HighTIL=1)']
-#     uncalib_highTIL_val_outputs['PredLabel'] = (uncalib_highTIL_val_outputs['Pr(HighTIL=1)'] >= 0.5).astype(int)
-
     # Prepare validation set output dataframes for performance calculation
     filt_TILBasic_val_outputs = prepare_df(uncalib_TILBasic_val_outputs,PERF_WINDOW_INDICES)
-#     filt_highTIL_val_outputs = prepare_df(uncalib_highTIL_val_outputs,PERF_WINDOW_INDICES)
     
     ## Calculate performance metrics on current validation set outputs
     # Calculate ORCs of TIL-Basic model on validation set outputs
     uncalib_TILBasic_val_set_ORCs = calc_ORC(filt_TILBasic_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set ORC')
 
-#     # Calculate AUCs of high TIL intensity model on validation set outputs
-#     uncalib_highTIL_val_set_AUCs = calc_AUC(filt_highTIL_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set AUC')
-
     # Calculate Somers' D of TIL-Basic model on validation set outputs
     uncalib_TILBasic_val_set_Somers_D = calc_Somers_D(filt_TILBasic_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set Somers D')
-
-#     # Calculate Somers' D of high TIL intensity model on validation set outputs
-#     uncalib_highTIL_val_set_Somers_D = calc_Somers_D(filt_highTIL_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set Somers D')
 
     # Calculate threshold-level calibration metrics of TIL-Basic model on validation set outputs
     uncalib_TILBasic_val_set_thresh_calibration = calc_thresh_calibration(filt_TILBasic_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set threshold-level calibration metrics')
@@ -148,28 +128,16 @@ def main(array_task_id):
     macro_average_thresh_calibration.insert(2,'THRESHOLD',['Average' for idx in range(macro_average_thresh_calibration.shape[0])])
     uncalib_TILBasic_val_set_thresh_calibration = pd.concat([uncalib_TILBasic_val_set_thresh_calibration,macro_average_thresh_calibration],ignore_index=True).sort_values(by=['TUNE_IDX','WINDOW_IDX','THRESHOLD']).reset_index(drop=True)
 
-#     # Calculate binary calibration metrics of high TIL intensity model on validation set outputs
-#     uncalib_highTIL_val_set_calibration = calc_binary_calibration(filt_highTIL_val_outputs,PERF_WINDOW_INDICES,True,'Calculating validation set binary calibration metrics')
-    
     ## Save performance metrics from current resample's validation outputs
     # Save ORCs of TIL-Basic model from validation set outputs
     uncalib_TILBasic_val_set_ORCs.to_pickle(os.path.join(val_bs_dir,'TomorrowTILBasic_val_uncalibrated_ORCs_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
 
-#     # Save AUCs of high TIL intensity model from validation set outputs
-#     uncalib_highTIL_val_set_AUCs.to_pickle(os.path.join(val_bs_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_AUCs_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
-
     # Save Somers' D of TIL-Basic model from validation set outputs
     uncalib_TILBasic_val_set_Somers_D.to_pickle(os.path.join(val_bs_dir,'TomorrowTILBasic_val_uncalibrated_Somers_D_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
-
-#     # Save Somers' D of high TIL intensity model from validation set outputs
-#     uncalib_highTIL_val_set_Somers_D.to_pickle(os.path.join(val_bs_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_Somers_D_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
 
     # Save threshold-level calibration metrics of TIL-Basic model from validation set outputs
     uncalib_TILBasic_val_set_thresh_calibration.to_pickle(os.path.join(val_bs_dir,'TomorrowTILBasic_val_uncalibrated_calibration_metrics_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
 
-#     # Save binary calibration metrics of high TIL intensity model from validation set outputs
-#     uncalib_highTIL_val_set_calibration.to_pickle(os.path.join(val_bs_dir,'TomorrowHighIntensityTherapy_val_uncalibrated_calibration_metrics_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
-    
 if __name__ == '__main__':
     
     array_task_id = int(sys.argv[1])    
