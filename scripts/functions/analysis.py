@@ -188,6 +188,42 @@ def calc_thresh_calibration(pred_df,window_indices,progress_bar = True,progress_
     calib_metrics = pd.concat(calib_metrics,ignore_index = True).reset_index(drop=True)
     return calib_metrics
 
+# Function to calculate threshold-level AUC on given set outputs
+def calc_thresh_AUC(pred_df,window_indices,progress_bar = True,progress_bar_desc = ''):
+    
+    prob_cols = [col for col in pred_df if col.startswith('Pr(TILBasic=')]
+    thresh_labels = ['TILBasic>0','TILBasic>1','TILBasic>2','TILBasic>3']
+    thresh_AUCs = []
+
+    if progress_bar:
+        iterator = tqdm(pred_df.TUNE_IDX.unique(),desc=progress_bar_desc)
+    else:
+        iterator = pred_df.TUNE_IDX.unique()
+    
+    for thresh in range(1,len(prob_cols)):
+        cols_gt = prob_cols[thresh:]
+        prob_gt = pred_df[cols_gt].sum(1).values
+        gt = (pred_df['TrueLabel'] >= thresh).astype(int).values
+        pred_df['Pr('+thresh_labels[thresh-1]+')'] = prob_gt
+        pred_df[thresh_labels[thresh-1]] = gt
+    
+    for curr_tune_idx in iterator:
+        for curr_wi in window_indices:
+            filt_is_preds = pred_df[(pred_df.WindowIdx == curr_wi)&(pred_df.TUNE_IDX == curr_tune_idx)&(pred_df.TrueLabel.notna())].reset_index(drop=True)
+            for thresh in thresh_labels:
+                thresh_prob_name = 'Pr('+thresh+')'
+                try:
+                    curr_AUC = roc_auc_score(filt_is_preds[thresh],filt_is_preds[thresh_prob_name])
+                except:
+                    curr_AUC = np.nan
+                thresh_AUCs.append(pd.DataFrame({'TUNE_IDX':curr_tune_idx,
+                                                 'WINDOW_IDX':curr_wi,
+                                                 'THRESHOLD':thresh,
+                                                 'METRIC':'AUC',
+                                                 'VALUE':curr_AUC},index=[0]))
+    thresh_AUCs = pd.concat(thresh_AUCs,ignore_index = True).reset_index(drop=True)
+    return thresh_AUCs
+
 # Function to calculate binary calibration metrics on given set outputs
 def calc_binary_calibration(pred_df,window_indices,progress_bar = True,progress_bar_desc = ''):
     

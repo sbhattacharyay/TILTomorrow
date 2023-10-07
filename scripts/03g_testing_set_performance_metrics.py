@@ -47,7 +47,7 @@ from statsmodels.nonparametric.smoothers_lowess import lowess
 
 # Custom methods
 from functions.model_building import load_model_outputs
-from functions.analysis import prepare_df, calc_ORC, calc_Somers_D, calc_thresh_calibration, calc_test_thresh_calib_curves
+from functions.analysis import prepare_df, calc_ORC, calc_Somers_D, calc_thresh_AUC, calc_thresh_calibration, calc_test_thresh_calib_curves
 
 ## Define parameters for model training
 # Set version code
@@ -111,12 +111,20 @@ def main(array_task_id):
     # Calculate Somers' D of TIL-Basic model on testing set outputs
     calib_TILBasic_test_set_Somers_D = calc_Somers_D(filt_TILBasic_test_outputs,PERF_WINDOW_INDICES,True,'Calculating testing set Somers D')
 
+    # Calculate threshold-level AUC of TIL-Basic model on testing set outputs
+    calib_TILBasic_test_set_thresh_AUCs = calc_thresh_AUC(filt_TILBasic_test_outputs,PERF_WINDOW_INDICES,True,'Calculating testing set threshold-level AUC')
+    
     # Calculate threshold-level calibration metrics of TIL-Basic model on testing set outputs
     calib_TILBasic_test_set_thresh_calibration = calc_thresh_calibration(filt_TILBasic_test_outputs,PERF_WINDOW_INDICES,True,'Calculating testing set threshold-level calibration metrics')
     
     # Calculate threshold-level calibration curves of TIL-Basic model on testing set outputs
     calib_TILBasic_test_set_thresh_calibration_curves = calc_test_thresh_calib_curves(filt_TILBasic_test_outputs,PERF_WINDOW_INDICES,True,'Calculating testing set threshold-level calibration curves')
 
+    # Add macro-averages to threshold-level AUCs
+    macro_average_thresh_AUCs = calib_TILBasic_test_set_thresh_AUCs.groupby(['TUNE_IDX','WINDOW_IDX','METRIC'],as_index=False).VALUE.mean()
+    macro_average_thresh_AUCs.insert(2,'THRESHOLD',['Average' for idx in range(macro_average_thresh_AUCs.shape[0])])
+    calib_TILBasic_test_set_thresh_AUCs = pd.concat([calib_TILBasic_test_set_thresh_AUCs,macro_average_thresh_AUCs],ignore_index=True).sort_values(by=['TUNE_IDX','WINDOW_IDX','THRESHOLD']).reset_index(drop=True)
+    
     # Add macro-averages to threshold-level calibration metrics
     macro_average_thresh_calibration = calib_TILBasic_test_set_thresh_calibration.groupby(['TUNE_IDX','WINDOW_IDX','METRIC'],as_index=False).VALUE.mean()
     macro_average_thresh_calibration.insert(2,'THRESHOLD',['Average' for idx in range(macro_average_thresh_calibration.shape[0])])
@@ -129,6 +137,9 @@ def main(array_task_id):
     # Save Somers' D of TIL-Basic model from testing set outputs
     calib_TILBasic_test_set_Somers_D.to_pickle(os.path.join(test_bs_dir,'TomorrowTILBasic_test_calibrated_Somers_D_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
 
+    # Save threshold-level calibration AUCs of TIL-Basic model from testing set outputs
+    calib_TILBasic_test_set_thresh_AUCs.to_pickle(os.path.join(test_bs_dir,'TomorrowTILBasic_test_calibrated_AUCs_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
+    
     # Save threshold-level calibration metrics of TIL-Basic model from testing set outputs
     calib_TILBasic_test_set_thresh_calibration.to_pickle(os.path.join(test_bs_dir,'TomorrowTILBasic_test_calibrated_calibration_metrics_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
     

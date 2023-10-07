@@ -52,7 +52,7 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from models.dynamic_TTM import TILTomorrow_model
 
 # Set version code
-VERSION = 'v1-0'
+VERSION = 'v2-0'
 
 # Define directory in which tokens are stored for each partition
 tokens_dir = '/home/sb2406/rds/hpc-work/tokens'
@@ -149,8 +149,9 @@ agg_relevance_layers = compiled_relevance_layers.groupby(['TUNE_IDX','Token'],as
 ### IV. Characterise and summarise relevance layer tokens based on `BaseToken`
 ## Characterise tokens based on matches in manually constructed token directory
 # Load manually corrected token categorization key
-full_token_keys = pd.read_excel(os.path.join(tokens_dir,'TILTomorrow_full_token_keys_v1-0.xlsx'))
-full_token_keys['BaseToken'] = full_token_keys['BaseToken'].fillna('')
+full_token_keys = pd.read_excel(os.path.join(tokens_dir,'TILTomorrow_full_token_keys_'+VERSION+'.xlsx'))
+full_token_keys.Token = full_token_keys.Token.fillna('')
+full_token_keys.BaseToken = full_token_keys.BaseToken.fillna('')
 
 # Merge base token key information to aggregated relevance layer dataframeßß
 agg_relevance_layers = agg_relevance_layers.merge(full_token_keys,how='left')
