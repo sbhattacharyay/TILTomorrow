@@ -127,3 +127,26 @@ def df_to_multihot_matrix(index_set, vocab_length, unknown_index, cols_to_add):
             curr_indices[zero_indices[1:]] = [vocab_length + j for j in range(sum(curr_indices == unknown_index)-1)]
         multihot_matrix[i,curr_indices] = 1    
     return multihot_matrix
+
+# Define function for loading model outputs from sensitivity analysis models
+def load_sens_model_outputs(info_df, progress_bar=True, progress_bar_desc=''):
+
+    compiled_predictions = []
+        
+    if progress_bar:
+        iterator = tqdm(range(info_df.shape[0]),desc=progress_bar_desc)
+    else:
+        iterator = range(info_df.shape[0])
+    
+    # Load each output file, add 'WindowIdx' and repeat/fold information
+    for curr_row in iterator:
+        try:
+            curr_preds = pd.read_csv(info_df.FILE[curr_row])
+            curr_preds['SENS_IDX'] = info_df.SENS_IDX[curr_row]
+            curr_preds['REPEAT'] = info_df.REPEAT[curr_row]
+            curr_preds['FOLD'] = info_df.FOLD[curr_row]
+            curr_preds['SET'] = info_df.SET[curr_row]
+            compiled_predictions.append(curr_preds)
+        except:
+            print("An exception occurred for file: "+info_df.FILE[curr_row])         
+    return pd.concat(compiled_predictions,ignore_index=True)

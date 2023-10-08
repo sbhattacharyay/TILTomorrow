@@ -83,7 +83,7 @@ full_token_keys = pd.read_excel(os.path.join(tokens_dir,'TILTomorrow_full_token_
 full_token_keys.Token = full_token_keys.Token.fillna('')
 full_token_keys.BaseToken = full_token_keys.BaseToken.fillna('')
 
-# II. Create grid of training combinations
+### II. Create grid of training combinations
 # If tuning grid doesn't exist, create it
 if not os.path.exists(os.path.join(model_dir,'tuning_grid.csv')):
 

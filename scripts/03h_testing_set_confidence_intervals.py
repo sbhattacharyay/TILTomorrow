@@ -97,6 +97,7 @@ perf_file_info_df = pd.DataFrame({'FILE':perf_files,
                                  }).sort_values(by=['METRIC','RESAMPLE_IDX']).reset_index(drop=True)
 
 # Separate ORC and calibration file dataframes
+auc_file_info_df = perf_file_info_df[perf_file_info_df.METRIC == 'AUCs'].reset_index(drop=True)
 orc_file_info_df = perf_file_info_df[perf_file_info_df.METRIC == 'ORCs'].reset_index(drop=True)
 somers_d_file_info_df = perf_file_info_df[perf_file_info_df.METRIC == 'Somers_D'].reset_index(drop=True)
 thresh_calibration_file_info_df = perf_file_info_df[(perf_file_info_df.METRIC == 'calibration_metrics')].reset_index(drop=True)
@@ -104,13 +105,14 @@ calibration_curves_file_info_df = perf_file_info_df[(perf_file_info_df.METRIC ==
 
 ## Load and compile testing set performance dataframes into single files
 # Load testing set discrimination and calibration performance dataframes
+TILBasic_compiled_test_auc = pd.concat([pd.read_pickle(f) for f in tqdm(auc_file_info_df.FILE,'Load and compile testing set AUC values')],ignore_index=True)
 TILBasic_compiled_test_orc = pd.concat([pd.read_pickle(f) for f in tqdm(orc_file_info_df.FILE,'Load and compile testing set ORC values')],ignore_index=True)
 TILBasic_compiled_test_somers_d = pd.concat([pd.read_pickle(f) for f in tqdm(somers_d_file_info_df.FILE,'Load and compile testing set Somers D values')],ignore_index=True)
 TILBasic_compiled_test_calibration = pd.concat([pd.read_pickle(f) for f in tqdm(thresh_calibration_file_info_df.FILE,'Load and compile testing set threshold-level calibration metrics')],ignore_index=True)
 compiled_test_calibration_curves = pd.concat([pd.read_pickle(f) for f in tqdm(calibration_curves_file_info_df.FILE,'Load and compile testing set threshold-level calibration curves')],ignore_index=True)
 
 # Concatenate dataframes
-compiled_test_bootstrapping_metrics = pd.concat([TILBasic_compiled_test_orc,TILBasic_compiled_test_somers_d,TILBasic_compiled_test_calibration],ignore_index=True)
+compiled_test_bootstrapping_metrics = pd.concat([TILBasic_compiled_test_auc,TILBasic_compiled_test_orc,TILBasic_compiled_test_somers_d,TILBasic_compiled_test_calibration],ignore_index=True)
 
 # Replace NaN threshold values with 'None'
 compiled_test_bootstrapping_metrics.THRESHOLD = compiled_test_bootstrapping_metrics.THRESHOLD.fillna('None')

@@ -101,7 +101,7 @@ best_cal_slopes_combos = pd.read_csv(os.path.join(calibration_dir,'best_calibrat
 # Load post-dropout tuning grid
 tuning_grid = pd.read_csv(os.path.join(model_dir,'post_dropout_tuning_grid.csv'))
 
-# II. Create grid of training combinations for sensitivity analysis
+### II. Create grid of training combinations for sensitivity analysis
 # If sensitivity analysis grid doesn't exist, create it
 if not os.path.exists(os.path.join(model_dir,'sens_analysis_grid.csv')):
     
@@ -210,7 +210,7 @@ def main(array_task_id):
     
     # Remove tokens corresponding to current dropout set
     if curr_dropout_vars == 'dynamic':
-        banned_token_indices = np.sort(curr_vocab_df[curr_vocab_df.Baseline].VocabIndex.unique())
+        banned_token_indices = np.sort(curr_vocab_df[~curr_vocab_df.Baseline].VocabIndex.unique())
     elif curr_dropout_vars == 'clinician_impressions':
         banned_token_indices = np.sort(curr_vocab_df[curr_vocab_df.ClinicianInput].VocabIndex.unique())
     elif curr_dropout_vars == 'treatments':
