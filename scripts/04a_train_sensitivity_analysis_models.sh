@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=v2_sensitivity_TILTomorrow_training
 #SBATCH --time=01:30:00
-#SBATCH --array=2-19
+#SBATCH --array=0-14
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

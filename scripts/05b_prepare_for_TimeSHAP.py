@@ -64,7 +64,7 @@ from functions.model_building import collate_batch, df_to_multihot_matrix
 
 ## Define parameters for model training
 # Set version code
-VERSION = 'v1-0'
+VERSION = 'v2-0'
 
 # Set threshold at which to calculate TimeSHAP values
 SHAP_THRESHOLD = 'TILBasic>3'
@@ -98,6 +98,10 @@ cv_splits = pd.read_csv('../cross_validation_splits.csv')
 test_splits = cv_splits[cv_splits.SET == 'test'].reset_index(drop=True)
 uniq_GUPIs = test_splits.GUPI.unique()
 
+# Load sensitivty analysis grid
+sens_analysis_grid = pd.read_csv(os.path.join(model_dir,'sens_analysis_grid.csv'))
+sens_analysis_grid = sens_analysis_grid[['SENS_IDX','DROPOUT_VARS']].drop_duplicates(ignore_index=True)
+
 ### II. Identify timepoints in testing set outputs for TimeSHAP focus
 # Load and filter testing set outputs
 test_outputs_df = pd.read_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_test_calibrated_outputs.pkl'))
@@ -125,7 +129,64 @@ test_outputs_df = test_outputs_df.drop(columns=prob_cols).reset_index(drop=True)
 timeshap_points = test_outputs_df[test_outputs_df.WindowIdx.isin(SHAP_WINDOW_INDICES)].reset_index(drop=True)
 
 ### III. Partition significant timepoints for parallel TimeSHAP calculation
+## Extract checkpoints for all top-performing tuning configurations
+# Either create or load TILTomorrow checkpoint information for TimeSHAP calculation
+if not os.path.exists(os.path.join(shap_dir,'full_ckpt_info.pkl')):
+    
+    # Find all model checkpoint files in TILTomorrow output directory
+    ckpt_files = []
+    for path in Path(model_dir).rglob('*.ckpt'):
+        ckpt_files.append(str(path.resolve()))
+        
+    # Separate checkpoint file list based on sensitivity analysis status
+    full_ckpt_files = [f for f in ckpt_files if 'sens' not in f]
+    sens_ckpt_files = [f for f in ckpt_files if 'sens' in f]
+
+    # Categorize full model checkpoint files based on name
+    full_ckpt_info = pd.DataFrame({'file':full_ckpt_files,
+                                   'TUNE_IDX':[int(re.search('tune(.*)/epoch=', curr_file).group(1)) for curr_file in full_ckpt_files],
+                                   'VERSION':[re.search('model_outputs/(.*)/repeat', curr_file).group(1) for curr_file in full_ckpt_files],
+                                   'REPEAT':[int(re.search('/repeat(.*)/fold', curr_file).group(1)) for curr_file in full_ckpt_files],
+                                   'FOLD':[int(re.search('/fold(.*)/tune', curr_file).group(1)) for curr_file in full_ckpt_files],
+                                   'VAL_METRIC':[re.search('val_metric=(.*).ckpt', curr_file).group(1) for curr_file in full_ckpt_files]
+                                  }).sort_values(by=['FOLD','TUNE_IDX','VERSION']).reset_index(drop=True)
+    full_ckpt_info.VAL_METRIC = full_ckpt_info.VAL_METRIC.str.split('-').str[0].astype(float)
+    
+    # Categorize sensitivity analysis model checkpoint files based on name
+    sens_ckpt_info = pd.DataFrame({'file':sens_ckpt_files,
+                                   'TUNE_IDX':[int(re.search('tune(.*)/sens', curr_file).group(1)) for curr_file in sens_ckpt_files],
+                                   'SENS_IDX':[int(re.search('sens(.*)/epoch', curr_file).group(1)) for curr_file in sens_ckpt_files],
+                                   'VERSION':[re.search('model_outputs/(.*)/repeat', curr_file).group(1) for curr_file in sens_ckpt_files],
+                                   'REPEAT':[int(re.search('/repeat(.*)/fold', curr_file).group(1)) for curr_file in sens_ckpt_files],
+                                   'FOLD':[int(re.search('/fold(.*)/tune', curr_file).group(1)) for curr_file in sens_ckpt_files],
+                                   'VAL_METRIC':[re.search('val_metric=(.*).ckpt', curr_file).group(1) for curr_file in sens_ckpt_files]
+                                  }).sort_values(by=['FOLD','TUNE_IDX','SENS_IDX','VERSION']).reset_index(drop=True)
+    sens_ckpt_info.VAL_METRIC = sens_ckpt_info.VAL_METRIC.str.split('-').str[0].astype(float)
+    
+    # Save model checkpoint information dataframes
+    full_ckpt_info.to_pickle(os.path.join(shap_dir,'full_ckpt_info.pkl'))
+    sens_ckpt_info.to_pickle(os.path.join(shap_dir,'sens_ckpt_info.pkl'))
+
+else:
+    
+    # Read model checkpoint information dataframes
+    full_ckpt_info = pd.read_pickle(os.path.join(shap_dir,'full_ckpt_info.pkl'))
+    sens_ckpt_info = pd.read_pickle(os.path.join(shap_dir,'sens_ckpt_info.pkl'))
+
+# Decode dropout variables in sensitivity analysis model checkpoint dataframe
+sens_ckpt_info = sens_ckpt_info.merge(sens_analysis_grid).drop(columns='SENS_IDX')
+
+# Compile model checkpoint information dataframes
+ckpt_info = pd.concat([full_ckpt_info,sens_ckpt_info],ignore_index=True)
+ckpt_info.DROPOUT_VARS = ckpt_info.DROPOUT_VARS.fillna('none')
+
+# Filter checkpoints of tuning configurations in TimeSHAP timepoints
+ckpt_info = ckpt_info[ckpt_info.TUNE_IDX.isin(timeshap_points.TUNE_IDX)].reset_index(drop=True)
+
 ## Partition evenly for parallel calculation
+# Expand to encompass all variable dropout combinations
+timeshap_points = timeshap_points.merge(ckpt_info[['TUNE_IDX','REPEAT','FOLD','DROPOUT_VARS']],how='left').sort_values(by=['REPEAT','FOLD','TUNE_IDX','DROPOUT_VARS','GUPI','WindowIdx'],ignore_index=True)
+
 # Create column of index
 timeshap_points = timeshap_points.reset_index()
 
@@ -142,39 +203,6 @@ timeshap_points = timeshap_points.drop(columns='index')
 timeshap_points.to_pickle(os.path.join(shap_dir,'timeSHAP_partitions.pkl'))
 
 ### IV. Calculate average training set outputs per tuning configuration
-## Extract checkpoints for all top-performing tuning configurations
-# Either create or load TILTomorrow checkpoint information for TimeSHAP calculation
-if not os.path.exists(os.path.join(shap_dir,'ckpt_info.pkl')):
-    
-    # Find all model checkpoint files in APM output directory
-    ckpt_files = []
-    for path in Path(model_dir).rglob('*.ckpt'):
-        ckpt_files.append(str(path.resolve()))
-
-    # Categorize model checkpoint files based on name
-    ckpt_info = pd.DataFrame({'file':ckpt_files,
-                              'TUNE_IDX':[int(re.search('tune(.*)/epoch=', curr_file).group(1)) for curr_file in ckpt_files],
-                              'VERSION':[re.search('model_outputs/(.*)/repeat', curr_file).group(1) for curr_file in ckpt_files],
-                              'REPEAT':[int(re.search('/repeat(.*)/fold', curr_file).group(1)) for curr_file in ckpt_files],
-                              'FOLD':[int(re.search('/fold(.*)/tune', curr_file).group(1)) for curr_file in ckpt_files],
-                              'VAL_METRIC':[re.search('val_metric=(.*).ckpt', curr_file).group(1) for curr_file in ckpt_files]
-                             }).sort_values(by=['REPEAT','FOLD','TUNE_IDX','VERSION']).reset_index(drop=True)
-    ckpt_info.VAL_METRIC = ckpt_info.VAL_METRIC.str.split('-').str[0].astype(float)
-    
-    # Isolate iterations that maximise validation metric
-    ckpt_info = ckpt_info.loc[ckpt_info.groupby(['TUNE_IDX','VERSION','REPEAT','FOLD']).VAL_METRIC.idxmax()].reset_index(drop=True)
-
-    # Save model checkpoint information dataframe
-    ckpt_info.to_pickle(os.path.join(shap_dir,'ckpt_info.pkl'))
-    
-else:
-    
-    # Read model checkpoint information dataframe
-    ckpt_info = pd.read_pickle(os.path.join(shap_dir,'ckpt_info.pkl'))
-
-# Filter checkpoints of tuning configurations in TimeSHAP timepoints
-ckpt_info = ckpt_info[ckpt_info.TUNE_IDX.isin(timeshap_points.TUNE_IDX)].reset_index(drop=True)
-
 ## Calculate and summarise training set outputs for each checkpoint
 # Define variable to store summarised training set outputs
 summ_train_preds = []

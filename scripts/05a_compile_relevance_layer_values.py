@@ -90,7 +90,7 @@ full_token_keys.BaseToken = full_token_keys.BaseToken.fillna('')
 
 ### II. Find all top-performing model checkpoint files for relevance layer extraction
 # Either create or load TILTomorrow checkpoint information for relevance layer extraction
-if not os.path.exists(os.path.join(relevance_dir,'ckpt_info.pkl')):
+if not os.path.exists(os.path.join(relevance_dir,'full_ckpt_info.pkl')):
     
     # Find all model checkpoint files in TILTomorrow output directory
     ckpt_files = []

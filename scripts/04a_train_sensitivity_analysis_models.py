@@ -131,7 +131,7 @@ else:
 #     sens_analysis_grid = pd.read_csv(os.path.join(model_dir,'remaining_sens_analysis_grid.csv'))
 
 ## Manually determine repeats and folds to use for current training session
-sens_analysis_grid = sens_analysis_grid[sens_analysis_grid.REPEAT.isin([1])].reset_index(drop=True)
+sens_analysis_grid = sens_analysis_grid[sens_analysis_grid.REPEAT.isin([1])&(sens_analysis_grid.SENS_IDX!=1)].reset_index(drop=True)
 
 ### III. Train dynamic TILTomorrow model based on provided hyperparameter row index
 # Argument-induced training functions
