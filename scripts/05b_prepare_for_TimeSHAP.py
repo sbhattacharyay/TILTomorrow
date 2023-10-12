@@ -1,4 +1,4 @@
-#### Master Script 04b: Prepare environment to calculate TimeSHAP for TILTomorrow models ####
+#### Master Script 05b: Prepare environment to calculate TimeSHAP for TILTomorrow models ####
 #
 # Shubhayu Bhattacharyay
 # University of Cambridge
