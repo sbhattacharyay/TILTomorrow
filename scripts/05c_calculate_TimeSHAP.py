@@ -59,7 +59,7 @@ from functions.model_building import collate_batch, df_to_multihot_matrix
 
 ## Define parameters for model training
 # Set version code
-VERSION = 'v1-0'
+VERSION = 'v2-0'
 
 # Set threshold at which to calculate TimeSHAP values
 SHAP_THRESHOLD = 'TILBasic>3'
@@ -97,8 +97,25 @@ cv_splits = pd.read_csv('../cross_validation_splits.csv')
 test_splits = cv_splits[cv_splits.SET == 'test'].reset_index(drop=True)
 uniq_GUPIs = test_splits.GUPI.unique()
 
-# Read model checkpoint information dataframe
-ckpt_info = pd.read_pickle(os.path.join(shap_dir,'ckpt_info.pkl'))
+# Load sensitivty analysis grid
+sens_analysis_grid = pd.read_csv(os.path.join(model_dir,'sens_analysis_grid.csv'))
+sens_analysis_grid = sens_analysis_grid[['SENS_IDX','DROPOUT_VARS']].drop_duplicates(ignore_index=True)
+
+# Read model checkpoint information dataframes
+full_ckpt_info = pd.read_pickle(os.path.join(shap_dir,'full_ckpt_info.pkl'))
+sens_ckpt_info = pd.read_pickle(os.path.join(shap_dir,'sens_ckpt_info.pkl'))
+
+# Decode dropout variables in sensitivity analysis model checkpoint dataframe
+sens_ckpt_info = sens_ckpt_info.merge(sens_analysis_grid).drop(columns='SENS_IDX')
+
+# Compile model checkpoint information dataframes
+ckpt_info = pd.concat([full_ckpt_info,sens_ckpt_info],ignore_index=True)
+ckpt_info.DROPOUT_VARS = ckpt_info.DROPOUT_VARS.fillna('none')
+
+# Load prepared token dictionary
+full_token_keys = pd.read_excel(os.path.join(tokens_dir,'TILTomorrow_full_token_keys_'+VERSION+'.xlsx'))
+full_token_keys.Token = full_token_keys.Token.fillna('')
+full_token_keys.BaseToken = full_token_keys.BaseToken.fillna('')
 
 # Load partitioned significant clinical timepoints for allocated TimeSHAP calculation
 timeshap_partitions = pd.read_pickle(os.path.join(shap_dir,'timeSHAP_partitions.pkl'))
@@ -112,7 +129,7 @@ def main(array_task_id):
     curr_timepoints = timeshap_partitions[timeshap_partitions.PARTITION_IDX==array_task_id].reset_index(drop=True)
     
     # Identify unique CV partitions in current batch to load training set outputs
-    unique_cv_partitons = curr_timepoints[['REPEAT','FOLD','TUNE_IDX']].drop_duplicates().reset_index(drop=True)
+    unique_cv_partitons = curr_timepoints[['REPEAT','FOLD','TUNE_IDX','DROPOUT_VARS']].drop_duplicates().reset_index(drop=True)
     
     # Create empty lists to store average events and zero events
     avg_event_lists = []
@@ -128,7 +145,8 @@ def main(array_task_id):
         curr_repeat = unique_cv_partitons.REPEAT[curr_cv_row]
         curr_fold = unique_cv_partitons.FOLD[curr_cv_row]
         curr_tune_idx = unique_cv_partitons.TUNE_IDX[curr_cv_row]
-        
+        curr_dropout_vars = unique_cv_partitons.DROPOUT_VARS[curr_cv_row]
+
         # Define current fold token subdirectory
         token_fold_dir = os.path.join(tokens_dir,'repeat'+str(curr_repeat).zfill(2),'fold'+str(curr_fold))
             
@@ -148,11 +166,19 @@ def main(array_task_id):
         curr_vocab = cp.load(open(os.path.join(token_fold_dir,'TILTomorrow_token_dictionary.pkl'),"rb"))
         unknown_index = curr_vocab['<unk>']
         
+        # Create dataframe version of vocabulary
+        curr_vocab_df = pd.DataFrame({'VocabIndex':list(range(len(curr_vocab))),'Token':curr_vocab.get_itos()})
+
+        # Merge token dictionary information onto current vocabulary
+        curr_vocab_df = curr_vocab_df.merge(full_token_keys,how='left')
+
         # Extract relevant current configuration hyperparameters
         curr_physician_impressions = tuning_grid.PHYS_IMPRESSION_TOKENS[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
         curr_outcome_label = tuning_grid.OUTCOME_LABEL[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
         curr_rnn_type = tuning_grid.RNN_TYPE[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
-        
+        curr_max_tokens_per_base_token = tuning_grid.MAX_TOKENS_PER_BASE_TOKEN[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
+        curr_base_token_representation = tuning_grid.MIN_BASE_TOKEN_REPRESENATION[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
+    
         # Create copies of training, validation, and testing sets for configuration-specific formatting
         format_training_set = training_set.copy()
         format_testing_set = testing_set.copy()
@@ -161,7 +187,28 @@ def main(array_task_id):
         if curr_physician_impressions:
             format_training_set.VocabIndex = format_training_set.VocabIndex + format_training_set.VocabPhysImpressionIndex
             format_testing_set.VocabIndex = format_testing_set.VocabIndex + format_testing_set.VocabPhysImpressionIndex
-            
+
+        # Create a list to store banned token indices for current parametric combination
+        banned_indices = []
+
+        # If there is a maximum on the number of tokens per base token, remove base tokens which violate this limit
+        if curr_max_tokens_per_base_token != 'None':
+            tokens_per_base_token = full_token_keys[(~full_token_keys.Missing)&(~full_token_keys.BaseToken.isin(['','<unk>','DayOfICUStay']))].groupby(['BaseToken'],as_index=False).Token.nunique()
+            base_tokens_to_mask = tokens_per_base_token.BaseToken[tokens_per_base_token.Token > int(curr_max_tokens_per_base_token)].unique()
+            banned_indices += curr_vocab_df[curr_vocab_df.BaseToken.isin(base_tokens_to_mask)].VocabIndex.unique().tolist()
+
+        # If there is a minimum on the number of patients needed per base token, remove base tokens which violate this limit
+        if curr_base_token_representation != 'None':
+            token_counts_per_patient = pd.read_pickle(os.path.join(token_fold_dir,'TILTomorrow_token_incidences_per_patient.pkl')).merge(full_token_keys[['Token','BaseToken']],how='left')
+            token_counts_per_patient = token_counts_per_patient[token_counts_per_patient.GUPI.isin(training_set.GUPI.unique())].reset_index(drop=True)
+            patient_counts_per_base_token = token_counts_per_patient.groupby('BaseToken',as_index=False).GUPI.nunique()
+            base_tokens_to_mask = patient_counts_per_base_token.BaseToken[patient_counts_per_base_token.GUPI<(float(curr_base_token_representation)*training_set.GUPI.nunique())].unique()
+            mask_indices += curr_vocab_df[curr_vocab_df.BaseToken.isin(base_tokens_to_mask)].VocabIndex.unique().tolist()
+
+
+
+
+
         # Ensure indices are unique
         format_training_set.VocabIndex = format_training_set.VocabIndex.apply(lambda x: np.unique(x).tolist())
         format_testing_set.VocabIndex = format_testing_set.VocabIndex.apply(lambda x: np.unique(x).tolist())

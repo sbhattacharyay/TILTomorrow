@@ -75,6 +75,9 @@ SHAP_WINDOW_INDICES = [1,2,3,4,5,6,7]
 # Set number of maximum array tasks in HPC job
 MAX_ARRAY_TASKS = 10000
 
+# Choose tuning configurations for TimeSHAP
+OPT_TUNE_IDX = [332]
+
 ## Define and create relevant directories
 # Define model output directory based on version code
 model_dir = os.path.join('/home/sb2406/rds/hpc-work','TILTomorrow_model_outputs',VERSION)
@@ -117,7 +120,8 @@ thresh_labels = ['TILBasic>0','TILBasic>1','TILBasic>2','TILBasic>3']
 for thresh in range(1,len(prob_cols)):
     cols_gt = prob_cols[thresh:]
     prob_gt = test_outputs_df[cols_gt].sum(1).values
-    gt = (test_outputs_df['TrueLabel'] >= thresh).astype(int).values
+    gt = (test_outputs_df['TrueLabel'] >= thresh).astype(float).values
+    gt[test_outputs_df.TrueLabel.isna()] = np.nan
     test_outputs_df['Pr('+thresh_labels[thresh-1]+')'] = prob_gt
     test_outputs_df[thresh_labels[thresh-1]] = gt
 
@@ -186,6 +190,12 @@ ckpt_info = ckpt_info[ckpt_info.TUNE_IDX.isin(timeshap_points.TUNE_IDX)].reset_i
 ## Partition evenly for parallel calculation
 # Expand to encompass all variable dropout combinations
 timeshap_points = timeshap_points.merge(ckpt_info[['TUNE_IDX','REPEAT','FOLD','DROPOUT_VARS']],how='left').sort_values(by=['REPEAT','FOLD','TUNE_IDX','DROPOUT_VARS','GUPI','WindowIdx'],ignore_index=True)
+
+# Remove instances of dynamic variable dropout (does not make sense to calculate TimeSHAP in these circumstances)
+timeshap_points = timeshap_points[timeshap_points.DROPOUT_VARS != 'dynamic'].reset_index(drop=True)
+
+# Only calculate TimeSHAP on chosen tuning indices
+timeshap_points = timeshap_points[timeshap_points.TUNE_IDX.isin(OPT_TUNE_IDX)].reset_index(drop=True)
 
 # Create column of index
 timeshap_points = timeshap_points.reset_index()
