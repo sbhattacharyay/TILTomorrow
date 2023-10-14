@@ -203,11 +203,24 @@ def main(array_task_id):
             token_counts_per_patient = token_counts_per_patient[token_counts_per_patient.GUPI.isin(training_set.GUPI.unique())].reset_index(drop=True)
             patient_counts_per_base_token = token_counts_per_patient.groupby('BaseToken',as_index=False).GUPI.nunique()
             base_tokens_to_mask = patient_counts_per_base_token.BaseToken[patient_counts_per_base_token.GUPI<(float(curr_base_token_representation)*training_set.GUPI.nunique())].unique()
-            mask_indices += curr_vocab_df[curr_vocab_df.BaseToken.isin(base_tokens_to_mask)].VocabIndex.unique().tolist()
+            banned_indices += curr_vocab_df[curr_vocab_df.BaseToken.isin(base_tokens_to_mask)].VocabIndex.unique().tolist()
 
-
-
-
+        # Remove tokens corresponding to current dropout set
+        if curr_dropout_vars == 'dynamic':
+            banned_indices += np.sort(curr_vocab_df[~curr_vocab_df.Baseline].VocabIndex.unique()).tolist()
+        elif curr_dropout_vars == 'clinician_impressions':
+            banned_indices += np.sort(curr_vocab_df[curr_vocab_df.ClinicianInput].VocabIndex.unique()).tolist()
+        elif curr_dropout_vars == 'treatments':
+            banned_indices += np.sort(curr_vocab_df[curr_vocab_df.ICUIntervention].VocabIndex.unique()).tolist()
+        elif curr_dropout_vars == 'clinician_impressions_and_treatments':
+            banned_indices += np.sort(curr_vocab_df[curr_vocab_df.ClinicianInput | curr_vocab_df.ICUIntervention].VocabIndex.unique()).tolist()
+            
+        # Clean list of banned token indices to unique set
+        banned_indices = np.sort(np.unique(banned_indices)).tolist()
+        
+        # Removed banned tokes from training and testing sets
+        format_training_set.VocabIndex = format_training_set.VocabIndex.apply(lambda x: list(set(x)-set(banned_indices)))
+        format_testing_set.VocabIndex = format_testing_set.VocabIndex.apply(lambda x: list(set(x)-set(banned_indices)))
 
         # Ensure indices are unique
         format_training_set.VocabIndex = format_training_set.VocabIndex.apply(lambda x: np.unique(x).tolist())
@@ -235,6 +248,7 @@ def main(array_task_id):
         average_event.insert(0,'REPEAT',curr_repeat)
         average_event.insert(1,'FOLD',curr_fold)
         average_event.insert(2,'TUNE_IDX',curr_tune_idx)
+        average_event.insert(3,'DROPOUT_VARS',curr_dropout_vars)
         avg_event_lists.append(average_event)
         
         # Define zero-token dataframe for second-pass "average event"
@@ -244,15 +258,17 @@ def main(array_task_id):
         zero_event.insert(0,'REPEAT',curr_repeat)
         zero_event.insert(1,'FOLD',curr_fold)
         zero_event.insert(2,'TUNE_IDX',curr_tune_idx)
+        zero_event.insert(3,'DROPOUT_VARS',curr_dropout_vars)
         zero_event_lists.append(zero_event)
         
         # Add cross-validation partition and tuning configuration information to testing set dataframe
         format_testing_set['REPEAT'] = curr_repeat
         format_testing_set['FOLD']= curr_fold
         format_testing_set['TUNE_IDX'] = curr_tune_idx
-        
+        format_testing_set['DROPOUT_VARS'] = curr_dropout_vars
+
         # Filter testing set and store
-        curr_testing_sets.append(format_testing_set[format_testing_set.GUPI.isin(curr_timepoints[(curr_timepoints.REPEAT==curr_repeat)&(curr_timepoints.FOLD==curr_fold)&(curr_timepoints.TUNE_IDX==curr_tune_idx)].GUPI.unique())].reset_index(drop=True))
+        curr_testing_sets.append(format_testing_set[format_testing_set.GUPI.isin(curr_timepoints[(curr_timepoints.REPEAT==curr_repeat)&(curr_timepoints.FOLD==curr_fold)&(curr_timepoints.TUNE_IDX==curr_tune_idx)&(curr_timepoints.DROPOUT_VARS==curr_dropout_vars)].GUPI.unique())].reset_index(drop=True))
         
     # Concatenate average- and zero-event lists for storage
     avg_event_lists = pd.concat(avg_event_lists,ignore_index=True)
@@ -283,15 +299,16 @@ def main(array_task_id):
         curr_fold = curr_timepoints.FOLD[curr_trans_row]
         curr_GUPI = curr_timepoints.GUPI[curr_trans_row]
         curr_tune_idx = curr_timepoints.TUNE_IDX[curr_trans_row]
+        curr_dropout_vars = curr_timepoints.DROPOUT_VARS[curr_trans_row]
         curr_wi = curr_timepoints.WindowIdx[curr_trans_row]
         curr_thresh_idx = thresh_labels.index(SHAP_THRESHOLD)
-        
+
         # Extract average- and zero-events based on current combination parameters
-        curr_avg_event = avg_event_lists[(avg_event_lists.REPEAT==curr_repeat)&(avg_event_lists.FOLD==curr_fold)&(avg_event_lists.TUNE_IDX==curr_tune_idx)].drop(columns=['REPEAT','FOLD','TUNE_IDX']).reset_index(drop=True)
-        curr_zero_event = zero_event_lists[(zero_event_lists.REPEAT==curr_repeat)&(zero_event_lists.FOLD==curr_fold)&(zero_event_lists.TUNE_IDX==curr_tune_idx)].drop(columns=['REPEAT','FOLD','TUNE_IDX']).reset_index(drop=True)
+        curr_avg_event = avg_event_lists[(avg_event_lists.REPEAT==curr_repeat)&(avg_event_lists.FOLD==curr_fold)&(avg_event_lists.TUNE_IDX==curr_tune_idx)&(avg_event_lists.DROPOUT_VARS==curr_dropout_vars)].drop(columns=['REPEAT','FOLD','TUNE_IDX','DROPOUT_VARS']).reset_index(drop=True)
+        curr_zero_event = zero_event_lists[(zero_event_lists.REPEAT==curr_repeat)&(zero_event_lists.FOLD==curr_fold)&(zero_event_lists.TUNE_IDX==curr_tune_idx)&(avg_event_lists.DROPOUT_VARS==curr_dropout_vars)].drop(columns=['REPEAT','FOLD','TUNE_IDX','DROPOUT_VARS']).reset_index(drop=True)
         
         # Extract testing set outputs based on current combination parameters
-        filt_testing_set = curr_testing_sets[(curr_testing_sets.GUPI==curr_GUPI)&(curr_testing_sets.REPEAT==curr_repeat)&(curr_testing_sets.FOLD==curr_fold)&(curr_testing_sets.TUNE_IDX==curr_tune_idx)].reset_index(drop=True)
+        filt_testing_set = curr_testing_sets[(curr_testing_sets.GUPI==curr_GUPI)&(curr_testing_sets.REPEAT==curr_repeat)&(curr_testing_sets.FOLD==curr_fold)&(curr_testing_sets.TUNE_IDX==curr_tune_idx)&(curr_testing_sets.DROPOUT_VARS==curr_dropout_vars)].reset_index(drop=True)
         
         # Define current fold token subdirectory
         token_fold_dir = os.path.join(tokens_dir,'repeat'+str(curr_repeat).zfill(2),'fold'+str(curr_fold))
@@ -307,7 +324,7 @@ def main(array_task_id):
         filt_testing_multihot = np.expand_dims(testing_multihot[:curr_wi,:],axis=0)
                         
         # Extract current file and required hyperparameter information
-        curr_file = ckpt_info.file[(ckpt_info.REPEAT==curr_repeat)&(ckpt_info.FOLD==curr_fold)&(ckpt_info.TUNE_IDX==curr_tune_idx)].values[0]
+        curr_file = ckpt_info.file[(ckpt_info.REPEAT==curr_repeat)&(ckpt_info.FOLD==curr_fold)&(ckpt_info.TUNE_IDX==curr_tune_idx)&(ckpt_info.DROPOUT_VARS==curr_dropout_vars)].values[0]
         curr_rnn_type = tuning_grid[tuning_grid.TUNE_IDX==curr_tune_idx].RNN_TYPE.values[0]
             
         # Load current pretrained model
@@ -342,6 +359,7 @@ def main(array_task_id):
             ts_feature_data['REPEAT'] = curr_repeat
             ts_feature_data['FOLD'] = curr_fold
             ts_feature_data['TUNE_IDX'] = curr_tune_idx
+            ts_feature_data['DROPOUT_VARS'] = curr_dropout_vars
             ts_feature_data['Threshold'] = SHAP_THRESHOLD
             ts_feature_data['GUPI'] = curr_GUPI
             ts_feature_data['WindowIdx'] = curr_wi
@@ -352,6 +370,7 @@ def main(array_task_id):
             ts_event_data['REPEAT'] = curr_repeat
             ts_event_data['FOLD'] = curr_fold
             ts_event_data['TUNE_IDX'] = curr_tune_idx
+            ts_event_data['DROPOUT_VARS'] = curr_dropout_vars
             ts_event_data['Threshold'] = SHAP_THRESHOLD
             ts_event_data['GUPI'] = curr_GUPI
             ts_event_data['WindowIdx'] = curr_wi
@@ -394,6 +413,7 @@ def main(array_task_id):
             ts_feature_data['REPEAT'] = curr_repeat
             ts_feature_data['FOLD'] = curr_fold
             ts_feature_data['TUNE_IDX'] = curr_tune_idx
+            ts_feature_data['DROPOUT_VARS'] = curr_dropout_vars
             ts_feature_data['Threshold'] = SHAP_THRESHOLD
             ts_feature_data['GUPI'] = curr_GUPI
             ts_feature_data['WindowIdx'] = curr_wi
@@ -404,6 +424,7 @@ def main(array_task_id):
             ts_event_data['REPEAT'] = curr_repeat
             ts_event_data['FOLD'] = curr_fold
             ts_event_data['TUNE_IDX'] = curr_tune_idx
+            ts_event_data['DROPOUT_VARS'] = curr_dropout_vars
             ts_event_data['Threshold'] = SHAP_THRESHOLD
             ts_event_data['GUPI'] = curr_GUPI
             ts_event_data['WindowIdx'] = curr_wi

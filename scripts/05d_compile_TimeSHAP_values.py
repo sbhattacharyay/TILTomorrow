@@ -67,7 +67,7 @@ from functions.model_building import collate_batch, df_to_multihot_matrix
 
 ## Define parameters for model training
 # Set version code
-VERSION = 'v1-0'
+VERSION = 'v2-0'
 
 # Set threshold at which to calculate TimeSHAP values
 SHAP_THRESHOLD = 'TILBasic>3'
@@ -106,11 +106,28 @@ cv_splits = pd.read_csv('../cross_validation_splits.csv')
 test_splits = cv_splits[cv_splits.SET == 'test'].reset_index(drop=True)
 uniq_GUPIs = test_splits.GUPI.unique()
 
-# Read model checkpoint information dataframe
-ckpt_info = pd.read_pickle(os.path.join(shap_dir,'ckpt_info.pkl'))
+# Load sensitivty analysis grid
+sens_analysis_grid = pd.read_csv(os.path.join(model_dir,'sens_analysis_grid.csv'))
+sens_analysis_grid = sens_analysis_grid[['SENS_IDX','DROPOUT_VARS']].drop_duplicates(ignore_index=True)
+
+# Read model checkpoint information dataframes
+full_ckpt_info = pd.read_pickle(os.path.join(shap_dir,'full_ckpt_info.pkl'))
+sens_ckpt_info = pd.read_pickle(os.path.join(shap_dir,'sens_ckpt_info.pkl'))
+
+# Decode dropout variables in sensitivity analysis model checkpoint dataframe
+sens_ckpt_info = sens_ckpt_info.merge(sens_analysis_grid).drop(columns='SENS_IDX')
+
+# Compile model checkpoint information dataframes
+ckpt_info = pd.concat([full_ckpt_info,sens_ckpt_info],ignore_index=True)
+ckpt_info.DROPOUT_VARS = ckpt_info.DROPOUT_VARS.fillna('none')
 
 # Load partitioned significant clinical timepoints for allocated TimeSHAP calculation
 timeshap_partitions = pd.read_pickle(os.path.join(shap_dir,'timeSHAP_partitions.pkl'))
+
+# Load prepared token dictionary
+full_token_keys = pd.read_excel(os.path.join(tokens_dir,'TILTomorrow_full_token_keys_'+VERSION+'.xlsx'))
+full_token_keys.Token = full_token_keys.Token.fillna('')
+full_token_keys.BaseToken = full_token_keys.BaseToken.fillna('')
 
 ### II. Compile TimeSHAP values and clean directory
 ## Find completed TimeSHAP configurations and log remaining configurations, if any
@@ -121,6 +138,7 @@ for path in Path(os.path.join(sub_shap_dir)).rglob('*_timeSHAP_values_partition_
 
 # Characterise found TimeSHAP dataframe files
 tsx_info_df = pd.DataFrame({'FILE':tsx_files,
+                            'VERSION':[re.search('model_interpretations/(.*)/timeSHAP', curr_file).group(1) for curr_file in tsx_files],
                             'BASELINE':[re.search('parallel_results/(.*)_thresh_', curr_file).group(1) for curr_file in tsx_files],
                             'TYPE':[re.search('TILBasic_(.*)_timeSHAP_values', curr_file).group(1) for curr_file in tsx_files],
                             'PARTITION_IDX':[int(re.search('partition_idx_(.*).pkl', curr_file).group(1)) for curr_file in tsx_files]
@@ -133,6 +151,7 @@ for path in Path(os.path.join(missed_timepoint_dir)).rglob('*_missed_timepoints_
 
 # Characterise found missing timepoint dataframe files
 missed_info_df = pd.DataFrame({'FILE':missed_timepoint_files,
+                               'VERSION':[re.search('model_interpretations/(.*)/timeSHAP', curr_file).group(1) for curr_file in missed_timepoint_files],
                                'BASELINE':[re.search('missed_timepoints/(.*)_missed_', curr_file).group(1) for curr_file in missed_timepoint_files],
                                'PARTITION_IDX':[int(re.search('partition_idx_(.*).pkl', curr_file).group(1)) for curr_file in missed_timepoint_files]
                               }).sort_values(by=['PARTITION_IDX','BASELINE']).reset_index(drop=True)
@@ -184,20 +203,14 @@ compiled_event_timeSHAP_values.to_pickle(os.path.join(shap_dir,'event_timeSHAP_v
 compiled_feature_timeSHAP_values = pd.read_pickle(os.path.join(shap_dir,'feature_timeSHAP_values.pkl')).rename(columns={'Feature':'Token'}).drop(columns=['Random seed','NSamples'])
 
 # Add version number to compiled TimeSHAP value dataframe
-compiled_feature_timeSHAP_values['VERSION'] = 'v1-0'
+compiled_feature_timeSHAP_values['VERSION'] = VERSION
 
-# Average SHAP values per GUPI
-summarised_feature_timeSHAP_values = compiled_feature_timeSHAP_values.groupby(['TUNE_IDX','BaselineFeatures','GUPI','Threshold','Token'],as_index=False)['SHAP'].mean()
-
-# Load manually corrected full token categorization key
-full_token_key = pd.read_excel(os.path.join(tokens_dir,'TILTomorrow_full_token_keys_v1-0.xlsx'))
-
-# Merge full token key information to dataframe version of vocabulary
-summarised_feature_timeSHAP_values = summarised_feature_timeSHAP_values.merge(full_token_key,how='left')
+# Average SHAP values per GUPI-WindowIdx combination
+summarised_feature_timeSHAP_values = compiled_feature_timeSHAP_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','GUPI','Threshold','Token','WindowIdx'],as_index=False)['SHAP'].mean()
 
 ## Determine "most important" features for visualisation
 # Calculate summary statistics of SHAP per Token
-token_level_timeSHAP_summaries = summarised_feature_timeSHAP_values.groupby(['TUNE_IDX','BaselineFeatures','Baseline','Missing','Threshold','Type','BaseToken','Token'],as_index=False)['SHAP'].aggregate({'median':np.median,'mean':np.mean,'std':np.std,'instances':'count'}).sort_values('median').reset_index(drop=True)
+token_level_timeSHAP_summaries = summarised_feature_timeSHAP_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','Token'],as_index=False)['SHAP'].aggregate({'median':np.median,'mean':np.mean,'std':np.std,'instances':'count'}).sort_values('median').reset_index(drop=True)
 
 # # Filter out `Tokens` with less than 2 unique patients
 # token_level_timeSHAP_summaries = token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 2].reset_index(drop=True)
@@ -505,12 +518,8 @@ token_proportion_directionality = compiled_feature_timeSHAP_values[['TUNE_IDX','
 # Filter out all token-timepoint instances without threshold-differing effect or with unknown token
 diff_token_proportion_directionality = token_proportion_directionality[(token_proportion_directionality.proportion!=1)&(~token_proportion_directionality.Token.str.startswith('<unk>'))].reset_index(drop=True)
 
-# Load manually corrected full token categorization key
-full_token_key = pd.read_excel('/home/sb2406/rds/hpc-work/tokens/full_token_keys.xlsx')
-full_token_key['BaseToken'] = full_token_key['BaseToken'].fillna('')
-
 # Merge full token key information to dataframe of tokens with threshold-differing effects
-diff_token_proportion_directionality = diff_token_proportion_directionality.merge(full_token_key,how='left')
+diff_token_proportion_directionality = diff_token_proportion_directionality.merge(full_token_keys,how='left')
 
 # For initial purpose, filter out any missing value tokens
 diff_token_proportion_directionality = diff_token_proportion_directionality[diff_token_proportion_directionality.Missing==False].reset_index(drop=True)
@@ -522,7 +531,7 @@ diff_token_proportion_directionality = pd.pivot_table(diff_token_proportion_dire
 diff_token_proportion_directionality = diff_token_proportion_directionality[(~diff_token_proportion_directionality.Negative.isna())&(~diff_token_proportion_directionality.Positive.isna())].reset_index(drop=True)
 
 # Remerge full token key information
-diff_token_proportion_directionality = diff_token_proportion_directionality.merge(full_token_key,how='left')
+diff_token_proportion_directionality = diff_token_proportion_directionality.merge(full_token_keys,how='left')
 
 ## Extract and save TimeSHAP values corresponding to timepoints with threshold-differing effects
 # Keep only TimeSHAP values in the threshold-differing effects dataframe

@@ -134,5 +134,11 @@ test_CI_metrics_diff = compiled_test_bootstrapping_metrics.groupby(['TUNE_IDX','
 test_CI_calib_curves = compiled_test_calibration_curves.groupby(['TUNE_IDX','SENS_IDX','WINDOW_IDX','THRESHOLD','PREDPROB'],as_index=False)['TRUEPROB'].aggregate({'lo':lambda x: np.quantile(x.dropna(),.025),'median':lambda x: np.median(x.dropna()),'hi':lambda x: np.quantile(x.dropna(),.975),'mean':lambda x: np.mean(x.dropna()),'std':lambda x: np.std(x.dropna()),'resamples':'count'}).reset_index(drop=True)
 
 ## Save confidence intervals of both calibration and discrimination metrics
+# Metric values
 test_CI_metrics.to_csv(os.path.join(model_perf_dir,'sens_analysis_metrics_CI.csv'),index=False)
+
+# Difference values
+test_CI_metrics_diff.to_csv(os.path.join(model_perf_dir,'sens_analysis_metrics_diff_CI.csv'),index=False)
+
+# Calibration curves
 test_CI_calib_curves.to_csv(os.path.join(model_perf_dir,'sens_analysis_calibration_curves_CI.csv'),index=False)
