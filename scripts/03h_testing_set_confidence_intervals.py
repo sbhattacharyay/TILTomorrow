@@ -123,6 +123,47 @@ compiled_test_bootstrapping_metrics.to_pickle(os.path.join(model_perf_dir,'test_
 # Save compiled testing set calibration curves
 compiled_test_calibration_curves.to_pickle(os.path.join(model_perf_dir,'test_bootstrapping_calibration_curves.pkl'))
 
+## Find and characterise all testing set performance files
+# Search for all performance files
+trans_perf_files = []
+for path in Path(test_bs_dir).rglob('trans_TomorrowTILBasic_test_*'):
+    trans_perf_files.append(str(path.resolve()))
+
+# Characterise the performance files found
+trans_perf_file_info_df = pd.DataFrame({'FILE':trans_perf_files,
+                                        'VERSION':[re.search('_performance/(.*)/testing_set_', curr_file).group(1) for curr_file in trans_perf_files],
+                                        'OUTCOME_LABEL':[re.search('_bootstrapping/(.*)_test_', curr_file).group(1) for curr_file in trans_perf_files],
+                                        'METRIC':[re.search('test_calibrated_(.*)_rs_', curr_file).group(1) for curr_file in trans_perf_files],
+                                        'RESAMPLE_IDX':[int(re.search('_rs_(.*).pkl', curr_file).group(1)) for curr_file in trans_perf_files],
+                                        }).sort_values(by=['METRIC','RESAMPLE_IDX']).reset_index(drop=True)
+
+# Separate ORC and calibration file dataframes
+trans_auc_file_info_df = trans_perf_file_info_df[trans_perf_file_info_df.METRIC == 'AUCs'].reset_index(drop=True)
+trans_orc_file_info_df = trans_perf_file_info_df[trans_perf_file_info_df.METRIC == 'ORCs'].reset_index(drop=True)
+trans_somers_d_file_info_df = trans_perf_file_info_df[trans_perf_file_info_df.METRIC == 'Somers_D'].reset_index(drop=True)
+trans_thresh_calibration_file_info_df = trans_perf_file_info_df[(trans_perf_file_info_df.METRIC == 'calibration_metrics')].reset_index(drop=True)
+trans_calibration_curves_file_info_df = trans_perf_file_info_df[(trans_perf_file_info_df.METRIC == 'calibration_curves')].reset_index(drop=True)
+
+## Load and compile testing set performance dataframes into single files
+# Load testing set discrimination and calibration performance dataframes
+trans_TILBasic_compiled_test_auc = pd.concat([pd.read_pickle(f) for f in tqdm(trans_auc_file_info_df.FILE,'Load and compile testing set AUC values at transition points')],ignore_index=True)
+trans_TILBasic_compiled_test_orc = pd.concat([pd.read_pickle(f) for f in tqdm(trans_orc_file_info_df.FILE,'Load and compile testing set ORC values at transition points')],ignore_index=True)
+trans_TILBasic_compiled_test_somers_d = pd.concat([pd.read_pickle(f) for f in tqdm(trans_somers_d_file_info_df.FILE,'Load and compile testing set Somers D values')],ignore_index=True)
+trans_TILBasic_compiled_test_calibration = pd.concat([pd.read_pickle(f) for f in tqdm(trans_thresh_calibration_file_info_df.FILE,'Load and compile testing set threshold-level calibration metrics at transition points')],ignore_index=True)
+trans_compiled_test_calibration_curves = pd.concat([pd.read_pickle(f) for f in tqdm(trans_calibration_curves_file_info_df.FILE,'Load and compile testing set threshold-level calibration curves at transition points')],ignore_index=True)
+
+# Concatenate dataframes
+trans_compiled_test_bootstrapping_metrics = pd.concat([trans_TILBasic_compiled_test_auc,trans_TILBasic_compiled_test_orc,trans_TILBasic_compiled_test_somers_d,trans_TILBasic_compiled_test_calibration],ignore_index=True)
+
+# Replace NaN threshold values with 'None'
+trans_compiled_test_bootstrapping_metrics.THRESHOLD = trans_compiled_test_bootstrapping_metrics.THRESHOLD.fillna('None')
+
+# Save compiled testing set performance metrics
+trans_compiled_test_bootstrapping_metrics.to_pickle(os.path.join(model_perf_dir,'trans_test_bootstrapping_calibrated_metrics.pkl'))
+
+# Save compiled testing set calibration curves
+trans_compiled_test_calibration_curves.to_pickle(os.path.join(model_perf_dir,'trans_test_bootstrapping_calibration_curves.pkl'))
+
 # ## Delete individual files once compiled dataframe has been saved
 # # Iterate through performance metric files and delete
 # _ = [os.remove(f) for f in tqdm(perf_file_info_df.FILE,'Clearing testing bootstrapping metric files after collection')]
@@ -145,3 +186,21 @@ test_CI_calib_curves = compiled_test_calibration_curves.groupby(['TUNE_IDX','WIN
 ## Save confidence intervals of both calibration and discrimination metrics
 test_CI_metrics.to_csv(os.path.join(model_perf_dir,'test_set_metrics_CI.csv'),index=False)
 test_CI_calib_curves.to_csv(os.path.join(model_perf_dir,'test_set_calibration_curves_CI.csv'),index=False)
+
+## Load and prepare compiled testing set bootstrapping metrics at points of transition
+# Compiled calibrated testing set performance metrics at points of transition
+trans_compiled_test_bootstrapping_metrics = pd.read_pickle(os.path.join(model_perf_dir,'trans_test_bootstrapping_calibrated_metrics.pkl'))
+
+# Compiled calibrated testing set calibration curves at points of transition
+trans_compiled_test_calibration_curves = pd.read_pickle(os.path.join(model_perf_dir,'trans_test_bootstrapping_calibration_curves.pkl'))
+
+## Calculate 95% confidence intervals at points of transition
+# Calibrated testing set performance metrics at points of transition
+trans_test_CI_metrics = trans_compiled_test_bootstrapping_metrics.groupby(['TUNE_IDX','METRIC','WINDOW_IDX','THRESHOLD'],as_index=False)['VALUE'].aggregate({'lo':lambda x: np.quantile(x.dropna(),.025),'median':lambda x: np.median(x.dropna()),'hi':lambda x: np.quantile(x.dropna(),.975),'mean':lambda x: np.mean(x.dropna()),'std':lambda x: np.std(x.dropna()),'resamples':'count'}).reset_index(drop=True)
+
+# Calibrated testing set calibration curves at points of transition
+trans_test_CI_calib_curves = trans_compiled_test_calibration_curves.groupby(['TUNE_IDX','WINDOW_IDX','THRESHOLD','PREDPROB'],as_index=False)['TRUEPROB'].aggregate({'lo':lambda x: np.quantile(x.dropna(),.025),'median':lambda x: np.median(x.dropna()),'hi':lambda x: np.quantile(x.dropna(),.975),'mean':lambda x: np.mean(x.dropna()),'std':lambda x: np.std(x.dropna()),'resamples':'count'}).reset_index(drop=True)
+
+## Save confidence intervals of both calibration and discrimination metrics at points of transition
+trans_test_CI_metrics.to_csv(os.path.join(model_perf_dir,'trans_test_set_metrics_CI.csv'),index=False)
+trans_test_CI_calib_curves.to_csv(os.path.join(model_perf_dir,'trans_test_set_calibration_curves_CI.csv'),index=False)

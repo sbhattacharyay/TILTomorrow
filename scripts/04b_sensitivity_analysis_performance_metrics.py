@@ -223,67 +223,67 @@ def main(array_task_id):
     # Prepare trivial output dataframes for performance calculation at transition points
     trans_filt_no_info_TILBasic_outputs = prepare_df(trans_no_info_TILBasic_outputs,PERF_WINDOW_INDICES)
     
-    ## Iterate through sensitivity indices and calculate testing set performance metrics
-    # Create empty lists to store performance metrics
-    sens_test_ORCs = []
-    sens_test_Somers_D = []
-    sens_test_thresh_AUCs = []
-    sens_test_thresh_calibration = []
-    sens_test_thresh_calibration_curves = []
+    # ## Iterate through sensitivity indices and calculate testing set performance metrics
+    # # Create empty lists to store performance metrics
+    # sens_test_ORCs = []
+    # sens_test_Somers_D = []
+    # sens_test_thresh_AUCs = []
+    # sens_test_thresh_calibration = []
+    # sens_test_thresh_calibration_curves = []
 
-    # Iterate through all unique sensitivity indices
-    for curr_sens_idx in tqdm(filt_TILBasic_test_outputs.SENS_IDX.unique(),'Calculating testing set performance metrics for each sensitivity index'):
+    # # Iterate through all unique sensitivity indices
+    # for curr_sens_idx in tqdm(filt_TILBasic_test_outputs.SENS_IDX.unique(),'Calculating testing set performance metrics for each sensitivity index'):
         
-        # Calculate ORCs of TIL-Basic model on testing set outputs
-        calib_TILBasic_test_set_ORCs = calc_ORC(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.SENS_IDX==curr_sens_idx].reset_index(drop=True),PERF_WINDOW_INDICES,True,'Calculating testing set ORC')
+    #     # Calculate ORCs of TIL-Basic model on testing set outputs
+    #     calib_TILBasic_test_set_ORCs = calc_ORC(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.SENS_IDX==curr_sens_idx].reset_index(drop=True),PERF_WINDOW_INDICES,True,'Calculating testing set ORC')
 
-        # Calculate Somers' D of TIL-Basic model on testing set outputs
-        calib_TILBasic_test_set_Somers_D = calc_Somers_D(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.SENS_IDX==curr_sens_idx].reset_index(drop=True),PERF_WINDOW_INDICES,True,'Calculating testing set Somers D')
+    #     # Calculate Somers' D of TIL-Basic model on testing set outputs
+    #     calib_TILBasic_test_set_Somers_D = calc_Somers_D(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.SENS_IDX==curr_sens_idx].reset_index(drop=True),PERF_WINDOW_INDICES,True,'Calculating testing set Somers D')
 
-        # Calculate threshold-level AUC of TIL-Basic model on testing set outputs
-        calib_TILBasic_test_set_thresh_AUCs = calc_thresh_AUC(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.SENS_IDX==curr_sens_idx].reset_index(drop=True),PERF_WINDOW_INDICES,True,'Calculating testing set threshold-level AUC')
+    #     # Calculate threshold-level AUC of TIL-Basic model on testing set outputs
+    #     calib_TILBasic_test_set_thresh_AUCs = calc_thresh_AUC(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.SENS_IDX==curr_sens_idx].reset_index(drop=True),PERF_WINDOW_INDICES,True,'Calculating testing set threshold-level AUC')
 
-        # Calculate threshold-level calibration metrics of TIL-Basic model on testing set outputs
-        calib_TILBasic_test_set_thresh_calibration = calc_thresh_calibration(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.SENS_IDX==curr_sens_idx].reset_index(drop=True),PERF_WINDOW_INDICES,True,'Calculating testing set threshold-level calibration metrics')
+    #     # Calculate threshold-level calibration metrics of TIL-Basic model on testing set outputs
+    #     calib_TILBasic_test_set_thresh_calibration = calc_thresh_calibration(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.SENS_IDX==curr_sens_idx].reset_index(drop=True),PERF_WINDOW_INDICES,True,'Calculating testing set threshold-level calibration metrics')
 
-        # Calculate threshold-level calibration curves of TIL-Basic model on testing set outputs
-        calib_TILBasic_test_set_thresh_calibration_curves = calc_test_thresh_calib_curves(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.SENS_IDX==curr_sens_idx].reset_index(drop=True),PERF_WINDOW_INDICES,True,'Calculating testing set threshold-level calibration curves')
+    #     # Calculate threshold-level calibration curves of TIL-Basic model on testing set outputs
+    #     calib_TILBasic_test_set_thresh_calibration_curves = calc_test_thresh_calib_curves(filt_TILBasic_test_outputs[filt_TILBasic_test_outputs.SENS_IDX==curr_sens_idx].reset_index(drop=True),PERF_WINDOW_INDICES,True,'Calculating testing set threshold-level calibration curves')
 
-        # Add macro-averages to threshold-level AUCs
-        macro_average_thresh_AUCs = calib_TILBasic_test_set_thresh_AUCs.groupby(['TUNE_IDX','WINDOW_IDX','METRIC'],as_index=False).VALUE.mean()
-        macro_average_thresh_AUCs.insert(2,'THRESHOLD',['Average' for idx in range(macro_average_thresh_AUCs.shape[0])])
-        calib_TILBasic_test_set_thresh_AUCs = pd.concat([calib_TILBasic_test_set_thresh_AUCs,macro_average_thresh_AUCs],ignore_index=True).sort_values(by=['TUNE_IDX','WINDOW_IDX','THRESHOLD']).reset_index(drop=True)
+    #     # Add macro-averages to threshold-level AUCs
+    #     macro_average_thresh_AUCs = calib_TILBasic_test_set_thresh_AUCs.groupby(['TUNE_IDX','WINDOW_IDX','METRIC'],as_index=False).VALUE.mean()
+    #     macro_average_thresh_AUCs.insert(2,'THRESHOLD',['Average' for idx in range(macro_average_thresh_AUCs.shape[0])])
+    #     calib_TILBasic_test_set_thresh_AUCs = pd.concat([calib_TILBasic_test_set_thresh_AUCs,macro_average_thresh_AUCs],ignore_index=True).sort_values(by=['TUNE_IDX','WINDOW_IDX','THRESHOLD']).reset_index(drop=True)
 
-        # Add macro-averages to threshold-level calibration metrics
-        macro_average_thresh_calibration = calib_TILBasic_test_set_thresh_calibration.groupby(['TUNE_IDX','WINDOW_IDX','METRIC'],as_index=False).VALUE.mean()
-        macro_average_thresh_calibration.insert(2,'THRESHOLD',['Average' for idx in range(macro_average_thresh_calibration.shape[0])])
-        calib_TILBasic_test_set_thresh_calibration = pd.concat([calib_TILBasic_test_set_thresh_calibration,macro_average_thresh_calibration],ignore_index=True).sort_values(by=['TUNE_IDX','WINDOW_IDX','THRESHOLD']).reset_index(drop=True)
+    #     # Add macro-averages to threshold-level calibration metrics
+    #     macro_average_thresh_calibration = calib_TILBasic_test_set_thresh_calibration.groupby(['TUNE_IDX','WINDOW_IDX','METRIC'],as_index=False).VALUE.mean()
+    #     macro_average_thresh_calibration.insert(2,'THRESHOLD',['Average' for idx in range(macro_average_thresh_calibration.shape[0])])
+    #     calib_TILBasic_test_set_thresh_calibration = pd.concat([calib_TILBasic_test_set_thresh_calibration,macro_average_thresh_calibration],ignore_index=True).sort_values(by=['TUNE_IDX','WINDOW_IDX','THRESHOLD']).reset_index(drop=True)
         
-        # Add sensitivity index information to all calculated dataframes
-        calib_TILBasic_test_set_ORCs['SENS_IDX'] = curr_sens_idx
-        calib_TILBasic_test_set_Somers_D['SENS_IDX'] = curr_sens_idx
-        calib_TILBasic_test_set_thresh_AUCs['SENS_IDX'] = curr_sens_idx
-        calib_TILBasic_test_set_thresh_calibration['SENS_IDX'] = curr_sens_idx
-        calib_TILBasic_test_set_thresh_calibration_curves['SENS_IDX'] = curr_sens_idx
+    #     # Add sensitivity index information to all calculated dataframes
+    #     calib_TILBasic_test_set_ORCs['SENS_IDX'] = curr_sens_idx
+    #     calib_TILBasic_test_set_Somers_D['SENS_IDX'] = curr_sens_idx
+    #     calib_TILBasic_test_set_thresh_AUCs['SENS_IDX'] = curr_sens_idx
+    #     calib_TILBasic_test_set_thresh_calibration['SENS_IDX'] = curr_sens_idx
+    #     calib_TILBasic_test_set_thresh_calibration_curves['SENS_IDX'] = curr_sens_idx
         
-        # Append dataframes to running lists
-        sens_test_ORCs.append(calib_TILBasic_test_set_ORCs)
-        sens_test_Somers_D.append(calib_TILBasic_test_set_Somers_D)
-        sens_test_thresh_AUCs.append(calib_TILBasic_test_set_thresh_AUCs)
-        sens_test_thresh_calibration.append(calib_TILBasic_test_set_thresh_calibration)
-        sens_test_thresh_calibration_curves.append(calib_TILBasic_test_set_thresh_calibration_curves)
+    #     # Append dataframes to running lists
+    #     sens_test_ORCs.append(calib_TILBasic_test_set_ORCs)
+    #     sens_test_Somers_D.append(calib_TILBasic_test_set_Somers_D)
+    #     sens_test_thresh_AUCs.append(calib_TILBasic_test_set_thresh_AUCs)
+    #     sens_test_thresh_calibration.append(calib_TILBasic_test_set_thresh_calibration)
+    #     sens_test_thresh_calibration_curves.append(calib_TILBasic_test_set_thresh_calibration_curves)
     
-    ## Calculate metric differences from full model
-    # Compile lists of dataframes into single dataframe per metric
-    sens_test_ORCs = pd.concat(sens_test_ORCs,ignore_index=True)
-    sens_test_Somers_D = pd.concat(sens_test_Somers_D,ignore_index=True)
-    sens_test_thresh_AUCs = pd.concat(sens_test_thresh_AUCs,ignore_index=True)
-    sens_test_thresh_calibration = pd.concat(sens_test_thresh_calibration,ignore_index=True)
-    sens_test_thresh_calibration_curves = pd.concat(sens_test_thresh_calibration_curves,ignore_index=True)
+    # ## Calculate metric differences from full model
+    # # Compile lists of dataframes into single dataframe per metric
+    # sens_test_ORCs = pd.concat(sens_test_ORCs,ignore_index=True)
+    # sens_test_Somers_D = pd.concat(sens_test_Somers_D,ignore_index=True)
+    # sens_test_thresh_AUCs = pd.concat(sens_test_thresh_AUCs,ignore_index=True)
+    # sens_test_thresh_calibration = pd.concat(sens_test_thresh_calibration,ignore_index=True)
+    # sens_test_thresh_calibration_curves = pd.concat(sens_test_thresh_calibration_curves,ignore_index=True)
 
-    # Concatenate scalar metrics into single dataframe for simplicity
-    compiled_sens_test_metrics = pd.concat([sens_test_ORCs,sens_test_Somers_D,sens_test_thresh_AUCs,sens_test_thresh_calibration],ignore_index=True)
-    compiled_sens_test_metrics.THRESHOLD = compiled_sens_test_metrics.THRESHOLD.fillna('None')
+    # # Concatenate scalar metrics into single dataframe for simplicity
+    # compiled_sens_test_metrics = pd.concat([sens_test_ORCs,sens_test_Somers_D,sens_test_thresh_AUCs,sens_test_thresh_calibration],ignore_index=True)
+    # compiled_sens_test_metrics.THRESHOLD = compiled_sens_test_metrics.THRESHOLD.fillna('None')
 
     ## Iterate through sensitivity indices and calculate testing set performance metrics at points of transition
     # Create empty lists to store performance metrics
@@ -378,47 +378,87 @@ def main(array_task_id):
     ## Calculate differences in metric performance values from full model resamples
     # Load bootstrapping test set performance metrics from full model
     compiled_test_bootstrapping_metrics = pd.read_pickle(os.path.join(model_perf_dir,'test_bootstrapping_calibrated_metrics.pkl'))
+
+    # Load bootstrapping test set performance metrics from full model at transition points
+    trans_compiled_test_bootstrapping_metrics = pd.read_pickle(os.path.join(model_perf_dir,'trans_test_bootstrapping_calibrated_metrics.pkl'))
     
     # Ascribe resampling indices based on place in dataframe
     compiled_test_bootstrapping_metrics['RESAMPLE_IDX'] = compiled_test_bootstrapping_metrics.groupby(['TUNE_IDX','WINDOW_IDX','METRIC','THRESHOLD']).cumcount()+1
+    trans_compiled_test_bootstrapping_metrics['RESAMPLE_IDX'] = trans_compiled_test_bootstrapping_metrics.groupby(['TUNE_IDX','WINDOW_IDX','METRIC','THRESHOLD']).cumcount()+1
 
     # Filter to current resampling index
     curr_full_test_metrics = compiled_test_bootstrapping_metrics[compiled_test_bootstrapping_metrics['RESAMPLE_IDX'] == curr_rs_idx].reset_index(drop=True).rename(columns={'VALUE':'FULL_MODEL_VALUE'})
-    
-    # Calculate difference for discrimination metrics
-    compiled_sens_test_discrimination = compiled_sens_test_metrics[compiled_sens_test_metrics.METRIC.isin(['ORC','Somers D','AUC'])].merge(curr_full_test_metrics,how='left')
-    compiled_sens_test_discrimination['SENS_DIFFERENCE'] = compiled_sens_test_discrimination.FULL_MODEL_VALUE - compiled_sens_test_discrimination.VALUE
-    
+    trans_curr_full_test_metrics = trans_compiled_test_bootstrapping_metrics[trans_compiled_test_bootstrapping_metrics['RESAMPLE_IDX'] == curr_rs_idx].reset_index(drop=True).rename(columns={'VALUE':'FULL_MODEL_VALUE'})
+
+    # # Calculate difference for discrimination metrics
+    # compiled_sens_test_discrimination = compiled_sens_test_metrics[compiled_sens_test_metrics.METRIC.isin(['ORC','Somers D','AUC'])].merge(curr_full_test_metrics,how='left')
+    # compiled_sens_test_discrimination['SENS_DIFFERENCE'] = compiled_sens_test_discrimination.FULL_MODEL_VALUE - compiled_sens_test_discrimination.VALUE
+
     # Calculate difference for no-information discrimination metrics
     compiled_no_info_discrimination = compiled_no_info_metrics[compiled_no_info_metrics.METRIC.isin(['ORC','Somers D','AUC'])].merge(curr_full_test_metrics,how='left')
     compiled_no_info_discrimination['SENS_DIFFERENCE'] = compiled_no_info_discrimination.FULL_MODEL_VALUE - compiled_no_info_discrimination.VALUE
 
     # Calculate error difference for calibration slope
-    compiled_sens_test_calib_slope = compiled_sens_test_metrics[compiled_sens_test_metrics.METRIC.isin(['CALIB_SLOPE'])].merge(curr_full_test_metrics,how='left')
-    compiled_sens_test_calib_slope['SENS_DIFFERENCE'] = (compiled_sens_test_calib_slope.FULL_MODEL_VALUE-1).abs() - (compiled_sens_test_calib_slope.VALUE-1).abs()
+    # compiled_sens_test_calib_slope = compiled_sens_test_metrics[compiled_sens_test_metrics.METRIC.isin(['CALIB_SLOPE'])].merge(curr_full_test_metrics,how='left')
+    # compiled_sens_test_calib_slope['SENS_DIFFERENCE'] = (compiled_sens_test_calib_slope.FULL_MODEL_VALUE-1).abs() - (compiled_sens_test_calib_slope.VALUE-1).abs()
     
     # Calculate error difference for other calibration metrics
-    compiled_sens_test_other_calib = compiled_sens_test_metrics[compiled_sens_test_metrics.METRIC.isin(['Emax','ICI'])].merge(curr_full_test_metrics,how='left')
-    compiled_sens_test_other_calib['SENS_DIFFERENCE'] = (compiled_sens_test_other_calib.FULL_MODEL_VALUE).abs() - (compiled_sens_test_other_calib.VALUE).abs()
+    # compiled_sens_test_other_calib = compiled_sens_test_metrics[compiled_sens_test_metrics.METRIC.isin(['Emax','ICI'])].merge(curr_full_test_metrics,how='left')
+    # compiled_sens_test_other_calib['SENS_DIFFERENCE'] = (compiled_sens_test_other_calib.FULL_MODEL_VALUE).abs() - (compiled_sens_test_other_calib.VALUE).abs()
     
-    ## Save performance metrics from current resample's testing outputs
-    # Compile the difference-in-metric scores
-    compiled_sens_test_differences = pd.concat([compiled_sens_test_discrimination,compiled_sens_test_calib_slope,compiled_sens_test_other_calib],ignore_index=True).drop(columns=['FULL_MODEL_VALUE'])
+    # Calculate difference for discrimination metrics at points of transition
+    trans_compiled_sens_test_discrimination = trans_compiled_sens_test_metrics[trans_compiled_sens_test_metrics.METRIC.isin(['ORC','Somers D','AUC'])].merge(trans_curr_full_test_metrics,how='left')
+    trans_compiled_sens_test_discrimination['SENS_DIFFERENCE'] = trans_compiled_sens_test_discrimination.FULL_MODEL_VALUE - trans_compiled_sens_test_discrimination.VALUE
+
+    # Calculate difference for no-information discrimination metrics at points of transition
+    trans_compiled_no_info_discrimination = trans_compiled_no_info_metrics[trans_compiled_no_info_metrics.METRIC.isin(['ORC','Somers D','AUC'])].merge(trans_curr_full_test_metrics,how='left')
+    trans_compiled_no_info_discrimination['SENS_DIFFERENCE'] = trans_compiled_no_info_discrimination.FULL_MODEL_VALUE - trans_compiled_no_info_discrimination.VALUE
+
+    # Calculate error difference for calibration slope at points of transition
+    trans_compiled_sens_test_calib_slope = trans_compiled_sens_test_metrics[trans_compiled_sens_test_metrics.METRIC.isin(['CALIB_SLOPE'])].merge(trans_curr_full_test_metrics,how='left')
+    trans_compiled_sens_test_calib_slope['SENS_DIFFERENCE'] = (trans_compiled_sens_test_calib_slope.FULL_MODEL_VALUE-1).abs() - (trans_compiled_sens_test_calib_slope.VALUE-1).abs()
     
-    # Reorder columns
-    compiled_sens_test_differences = compiled_sens_test_differences[['RESAMPLE_IDX','TUNE_IDX','SENS_IDX','WINDOW_IDX','THRESHOLD','METRIC','VALUE','SENS_DIFFERENCE']]
+    # Calculate error difference for other calibration metrics at points of transition
+    trans_compiled_sens_test_other_calib = trans_compiled_sens_test_metrics[trans_compiled_sens_test_metrics.METRIC.isin(['Emax','ICI'])].merge(trans_curr_full_test_metrics,how='left')
+    trans_compiled_sens_test_other_calib['SENS_DIFFERENCE'] = (trans_compiled_sens_test_other_calib.FULL_MODEL_VALUE).abs() - (trans_compiled_sens_test_other_calib.VALUE).abs()
     
-    # Save scalar metrics of TIL-Basic model from testing set outputs
-    compiled_sens_test_differences.to_pickle(os.path.join(sens_bs_dir,'sens_analysis_TomorrowTILBasic_test_calibrated_metrics_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
+    # ## Save performance metrics from current resample's testing outputs
+    # # Compile the difference-in-metric scores
+    # compiled_sens_test_differences = pd.concat([compiled_sens_test_discrimination,compiled_sens_test_calib_slope,compiled_sens_test_other_calib],ignore_index=True).drop(columns=['FULL_MODEL_VALUE'])
     
-    # Save threshold-level calibration curves of TIL-Basic model from testing set outputs
-    sens_test_thresh_calibration_curves.to_pickle(os.path.join(sens_bs_dir,'sens_analysis_TomorrowTILBasic_test_calibrated_calibration_curves_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
+    # # Reorder columns
+    # compiled_sens_test_differences = compiled_sens_test_differences[['RESAMPLE_IDX','TUNE_IDX','SENS_IDX','WINDOW_IDX','THRESHOLD','METRIC','VALUE','SENS_DIFFERENCE']]
+    
+    # # Save scalar metrics of TIL-Basic model from testing set outputs
+    # compiled_sens_test_differences.to_pickle(os.path.join(sens_bs_dir,'sens_analysis_TomorrowTILBasic_test_calibrated_metrics_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
+    
+    # # Save threshold-level calibration curves of TIL-Basic model from testing set outputs
+    # sens_test_thresh_calibration_curves.to_pickle(os.path.join(sens_bs_dir,'sens_analysis_TomorrowTILBasic_test_calibrated_calibration_curves_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
 
     # Reorder columns of no-information performance dataframe
     compiled_no_info_discrimination = compiled_no_info_discrimination[['RESAMPLE_IDX','TUNE_IDX','WINDOW_IDX','THRESHOLD','METRIC','VALUE','SENS_DIFFERENCE']]
     
     # Save scalar metrics of TIL-Basic model from testing set outputs
     compiled_no_info_discrimination.to_pickle(os.path.join(sens_bs_dir,'no_information_TomorrowTILBasic_metrics_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
+    
+    ## Save performance metrics from current resample's testing outputs at points of transition
+    # Compile the difference-in-metric scores
+    trans_compiled_sens_test_differences = pd.concat([trans_compiled_sens_test_discrimination,trans_compiled_sens_test_calib_slope,trans_compiled_sens_test_other_calib],ignore_index=True).drop(columns=['FULL_MODEL_VALUE'])
+    
+    # Reorder columns
+    trans_compiled_sens_test_differences = trans_compiled_sens_test_differences[['RESAMPLE_IDX','TUNE_IDX','SENS_IDX','WINDOW_IDX','THRESHOLD','METRIC','VALUE','SENS_DIFFERENCE']]
+    
+    # Save scalar metrics of TIL-Basic model from testing set outputs
+    trans_compiled_sens_test_differences.to_pickle(os.path.join(sens_bs_dir,'trans_sens_analysis_TomorrowTILBasic_test_calibrated_metrics_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
+    
+    # Save threshold-level calibration curves of TIL-Basic model from testing set outputs
+    trans_sens_test_thresh_calibration_curves.to_pickle(os.path.join(sens_bs_dir,'trans_sens_analysis_TomorrowTILBasic_test_calibrated_calibration_curves_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
+
+    # Reorder columns of no-information performance dataframe
+    trans_compiled_no_info_discrimination = trans_compiled_no_info_discrimination[['RESAMPLE_IDX','TUNE_IDX','WINDOW_IDX','THRESHOLD','METRIC','VALUE','SENS_DIFFERENCE']]
+    
+    # Save scalar metrics of TIL-Basic model from testing set outputs
+    trans_compiled_no_info_discrimination.to_pickle(os.path.join(sens_bs_dir,'trans_no_information_TomorrowTILBasic_metrics_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
     
 if __name__ == '__main__':
     
