@@ -132,7 +132,7 @@ for path in Path(test_bs_dir).rglob('trans_TomorrowTILBasic_test_*'):
 # Characterise the performance files found
 trans_perf_file_info_df = pd.DataFrame({'FILE':trans_perf_files,
                                         'VERSION':[re.search('_performance/(.*)/testing_set_', curr_file).group(1) for curr_file in trans_perf_files],
-                                        'OUTCOME_LABEL':[re.search('_bootstrapping/(.*)_test_', curr_file).group(1) for curr_file in trans_perf_files],
+                                        'OUTCOME_LABEL':[re.search('_bootstrapping/trans_(.*)_test_', curr_file).group(1) for curr_file in trans_perf_files],
                                         'METRIC':[re.search('test_calibrated_(.*)_rs_', curr_file).group(1) for curr_file in trans_perf_files],
                                         'RESAMPLE_IDX':[int(re.search('_rs_(.*).pkl', curr_file).group(1)) for curr_file in trans_perf_files],
                                         }).sort_values(by=['METRIC','RESAMPLE_IDX']).reset_index(drop=True)
