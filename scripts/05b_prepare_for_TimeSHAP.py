@@ -79,6 +79,12 @@ MAX_ARRAY_TASKS = 10000
 OPT_TUNE_IDX = [332]
 
 ## Define and create relevant directories
+# Define directory in which CENTER-TBI data is stored
+dir_CENTER_TBI = os.path.join('/home/sb2406/rds/hpc-work','CENTER-TBI')
+
+# Define subdirectory in which formatted TIL values are stored
+form_TIL_dir = os.path.join(dir_CENTER_TBI,'FormattedTIL')
+
 # Define model output directory based on version code
 model_dir = os.path.join('/home/sb2406/rds/hpc-work','TILTomorrow_model_outputs',VERSION)
 
@@ -125,12 +131,61 @@ for thresh in range(1,len(prob_cols)):
     test_outputs_df['Pr('+thresh_labels[thresh-1]+')'] = prob_gt
     test_outputs_df[thresh_labels[thresh-1]] = gt
 
+# Calculate overall expected value
+prob_matrix = test_outputs_df[prob_cols]
+prob_matrix.columns = list(range(prob_matrix.shape[1]))
+index_vector = np.array(list(range(prob_matrix.shape[1])), ndmin=2).T
+test_outputs_df['ExpectedValue'] = np.matmul(prob_matrix.values,index_vector)
+
 # Remove TILBasic probability columns
 test_outputs_df = test_outputs_df.drop(columns=prob_cols).reset_index(drop=True)
 
+# Filter testing set outputs to desired tuning indices
+test_outputs_df = test_outputs_df[test_outputs_df.TUNE_IDX.isin(OPT_TUNE_IDX)].reset_index(drop=True)
+
+# For the sake of transition probing, calculate day-to-day difference in model output expected value
+test_outputs_df['dExpectedValue'] = test_outputs_df.groupby(['GUPI','TUNE_IDX','REPEAT','FOLD','SET'],as_index=False)['ExpectedValue'].diff()
+
 ## Extract desired points of TimeSHAP calculation per patient
-# Filter testing set outputs to desired range of window indices
-timeshap_points = test_outputs_df[test_outputs_df.WindowIdx.isin(SHAP_WINDOW_INDICES)].reset_index(drop=True)
+# Load and clean dataframe containing formatted TIL scores
+formatted_TIL_values = pd.read_csv(os.path.join(form_TIL_dir,'formatted_TIL_values.csv'),na_values=["NA","NaN","", " "])[['GUPI','TILTimepoint','TILDate','TILBasic']]
+formatted_TIL_values['TILDate'] = pd.to_datetime(formatted_TIL_values['TILDate'],format = '%Y-%m-%d')
+
+# Calculate differences in TILTimepoint and TILBasic values
+formatted_TIL_values['dTILTimepoint'] = formatted_TIL_values.groupby(['GUPI'],as_index=False)['TILTimepoint'].diff()
+formatted_TIL_values['dTILBasic'] = formatted_TIL_values.groupby(['GUPI'],as_index=False)['TILBasic'].diff()
+
+# Filter to timepoints of consecutive-day transition
+consec_day_trans = formatted_TIL_values[(formatted_TIL_values.dTILTimepoint==1)&(formatted_TIL_values.dTILBasic!=0)&(formatted_TIL_values.TILTimepoint>1)].reset_index(drop=True)
+
+# Modify dataframe timepoint and date information to match those of previous day (at time of prediction)
+consec_day_trans['WindowIdx'] = consec_day_trans['TILTimepoint'] - 1
+consec_day_trans['TimeStampStart'] = consec_day_trans['TILDate'] - pd.DateOffset(days=1)
+consec_day_trans = consec_day_trans.drop(columns=['TILTimepoint','TILDate']).rename(columns={'TILBasic':'TomorrowTILBasic'})
+
+# Load and clean dataframe containing ICU daily windows of study participants
+study_windows = pd.read_csv(os.path.join(form_TIL_dir,'study_window_timestamps_outcomes.csv'),na_values=["NA","NaN","", " "])[['GUPI','WindowIdx','WindowTotal','TimeStampStart']]
+study_windows['TimeStampStart'] = pd.to_datetime(study_windows['TimeStampStart'],format = '%Y-%m-%d')
+
+# Using right-merge, filter consecutive-day transitions corresponding to study windows
+consec_day_trans = study_windows.merge(consec_day_trans,how='inner')
+
+# Create a dataframe of days preceding prediction days (i.e., 2 days before transition)
+pre_consec_day_trans = consec_day_trans.copy()[['GUPI','WindowIdx','WindowTotal','TimeStampStart']]
+pre_consec_day_trans['WindowIdx'] = pre_consec_day_trans['WindowIdx'] - 1
+pre_consec_day_trans['TimeStampStart'] = pre_consec_day_trans['TimeStampStart'] - pd.DateOffset(days=1)
+
+# Compile desired range of window indices for TimeSHAP calculation
+timeshap_points = pd.concat([consec_day_trans[['GUPI','WindowIdx','WindowTotal','TimeStampStart']],pre_consec_day_trans[['GUPI','WindowIdx','WindowTotal','TimeStampStart']]],ignore_index=True)
+
+# Ensure points are in study windows
+timeshap_points = timeshap_points.merge(study_windows,how='inner').sort_values(by=['GUPI','WindowIdx','TimeStampStart'],ignore_index=True).drop_duplicates(ignore_index=True)
+
+# Merge extracted timepoints dataframe with testing set outputs
+timeshap_points = test_outputs_df.merge(timeshap_points,how='inner')
+
+# # Filter testing set outputs to desired range of window indices
+# timeshap_points = test_outputs_df[test_outputs_df.WindowIdx.isin(SHAP_WINDOW_INDICES)].reset_index(drop=True)
 
 ### III. Partition significant timepoints for parallel TimeSHAP calculation
 ## Extract checkpoints for all top-performing tuning configurations
@@ -187,6 +242,9 @@ ckpt_info.DROPOUT_VARS = ckpt_info.DROPOUT_VARS.fillna('none')
 # Filter checkpoints of tuning configurations in TimeSHAP timepoints
 ckpt_info = ckpt_info[ckpt_info.TUNE_IDX.isin(timeshap_points.TUNE_IDX)].reset_index(drop=True)
 
+# Filter checkpoints of desired sensitivity analysis
+ckpt_info = ckpt_info[ckpt_info.DROPOUT_VARS.isin(['none','clinician_impressions_and_treatments'])].reset_index(drop=True)
+
 ## Partition evenly for parallel calculation
 # Expand to encompass all variable dropout combinations
 timeshap_points = timeshap_points.merge(ckpt_info[['TUNE_IDX','REPEAT','FOLD','DROPOUT_VARS']],how='left').sort_values(by=['REPEAT','FOLD','TUNE_IDX','DROPOUT_VARS','GUPI','WindowIdx'],ignore_index=True)
@@ -200,17 +258,25 @@ timeshap_points = timeshap_points[timeshap_points.TUNE_IDX.isin(OPT_TUNE_IDX)].r
 # Create column of index
 timeshap_points = timeshap_points.reset_index()
 
-# Identify average number of rows in each partition
-ave_partition_length = timeshap_points.shape[0]/MAX_ARRAY_TASKS
+# Partition points of TimeSHAP calculation based on number of rows
+if timeshap_points.shape[0] >= MAX_ARRAY_TASKS: 
 
-# Add a column designating partition index to the TimeSHAP timepoint dataframe
-timeshap_points['PARTITION_IDX'] = timeshap_points['index'].apply(lambda x: int(x/ave_partition_length) + 1)
+    # Identify average number of rows in each partition
+    ave_partition_length = timeshap_points.shape[0]/MAX_ARRAY_TASKS
+
+    # Add a column designating partition index to the TimeSHAP timepoint dataframe
+    timeshap_points['PARTITION_IDX'] = timeshap_points['index'].apply(lambda x: int(x/ave_partition_length) + 1)
+
+else:
+
+    # Add a column designating partition index to the TimeSHAP timepoint dataframe
+    timeshap_points['PARTITION_IDX'] = timeshap_points['index']
 
 # Drop extraneous column
 timeshap_points = timeshap_points.drop(columns='index')
 
 # Save derived partitions
-timeshap_points.to_pickle(os.path.join(shap_dir,'timeSHAP_partitions.pkl'))
+timeshap_points.to_pickle(os.path.join(shap_dir,'transition_timeSHAP_partitions.pkl'))
 
 ### IV. Calculate average training set outputs per tuning configuration
 ## Calculate and summarise training set outputs for each checkpoint

@@ -62,10 +62,11 @@ from functions.model_building import collate_batch, df_to_multihot_matrix
 VERSION = 'v2-0'
 
 # Set threshold at which to calculate TimeSHAP values
-SHAP_THRESHOLD = 'TILBasic>3'
+# SHAP_THRESHOLD = 'TILBasic>3'
+SHAP_THRESHOLD = 'Expected Value'
 
-# Set window indices at which to calculate TimeSHAP values
-SHAP_WINDOW_INDICES = [1,2,3,4,5,6,7]
+# # Set window indices at which to calculate TimeSHAP values
+# SHAP_WINDOW_INDICES = [1,2,3,4,5,6,7]
 
 ## Define and create relevant directories
 # Define model output directory based on version code
@@ -118,7 +119,8 @@ full_token_keys.Token = full_token_keys.Token.fillna('')
 full_token_keys.BaseToken = full_token_keys.BaseToken.fillna('')
 
 # Load partitioned significant clinical timepoints for allocated TimeSHAP calculation
-timeshap_partitions = pd.read_pickle(os.path.join(shap_dir,'timeSHAP_partitions.pkl'))
+# timeshap_partitions = pd.read_pickle(os.path.join(shap_dir,'timeSHAP_partitions.pkl'))
+timeshap_partitions = pd.read_pickle(os.path.join(shap_dir,'transition_timeSHAP_partitions.pkl'))
 
 ### II. Calculate testing set TimeSHAP values based on provided TimeSHAP partition row index
 # Argument-induced bootstrapping functions
@@ -153,14 +155,14 @@ def main(array_task_id):
         # Load current token-indexed training set
         training_set = pd.read_pickle(os.path.join(token_fold_dir,'TILTomorrow_training_indices.pkl'))
             
-        # Filter training set outputs based on `WindowIdx`
-        training_set = training_set[training_set.WindowIdx.isin(SHAP_WINDOW_INDICES)].reset_index(drop=True)
+        # # Filter training set outputs based on `WindowIdx`
+        # training_set = training_set[training_set.WindowIdx.isin(SHAP_WINDOW_INDICES)].reset_index(drop=True)
 
         # Load current token-indexed testing set
         testing_set = pd.read_pickle(os.path.join(token_fold_dir,'TILTomorrow_testing_indices.pkl'))
 
-        # Filter testing set outputs based on `WindowIdx`
-        testing_set = testing_set[testing_set.WindowIdx.isin(SHAP_WINDOW_INDICES)].reset_index(drop=True)
+        # # Filter testing set outputs based on `WindowIdx`
+        # testing_set = testing_set[testing_set.WindowIdx.isin(SHAP_WINDOW_INDICES)].reset_index(drop=True)
 
         # Load current token dictionary
         curr_vocab = cp.load(open(os.path.join(token_fold_dir,'TILTomorrow_token_dictionary.pkl'),"rb"))
@@ -178,7 +180,12 @@ def main(array_task_id):
         curr_rnn_type = tuning_grid.RNN_TYPE[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
         curr_max_tokens_per_base_token = tuning_grid.MAX_TOKENS_PER_BASE_TOKEN[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
         curr_base_token_representation = tuning_grid.MIN_BASE_TOKEN_REPRESENATION[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
-    
+        curr_window_limit = tuning_grid.WINDOW_LIMIT[(tuning_grid.TUNE_IDX==curr_tune_idx)].values[0]
+
+        # Define the limit of windows for model training (1 WINDOW = 24 HOURS)
+        if curr_window_limit != 'None':
+            training_set = training_set[training_set.WindowIdx <= int(curr_window_limit)].sort_values(by=['GUPI','WindowIdx'],ignore_index=True)
+
         # Create copies of training, validation, and testing sets for configuration-specific formatting
         format_training_set = training_set.copy()
         format_testing_set = testing_set.copy()
@@ -301,7 +308,8 @@ def main(array_task_id):
         curr_tune_idx = curr_timepoints.TUNE_IDX[curr_trans_row]
         curr_dropout_vars = curr_timepoints.DROPOUT_VARS[curr_trans_row]
         curr_wi = curr_timepoints.WindowIdx[curr_trans_row]
-        curr_thresh_idx = thresh_labels.index(SHAP_THRESHOLD)
+        if SHAP_THRESHOLD != 'Expected Value':
+            curr_thresh_idx = thresh_labels.index(SHAP_THRESHOLD)
 
         # Extract average- and zero-events based on current combination parameters
         curr_avg_event = avg_event_lists[(avg_event_lists.REPEAT==curr_repeat)&(avg_event_lists.FOLD==curr_fold)&(avg_event_lists.TUNE_IDX==curr_tune_idx)&(avg_event_lists.DROPOUT_VARS==curr_dropout_vars)].drop(columns=['REPEAT','FOLD','TUNE_IDX','DROPOUT_VARS']).reset_index(drop=True)

@@ -6,10 +6,10 @@
 #SBATCH --ntasks=1
 #SBATCH --time=00:30:00
 #SBATCH --mem=54080
-#SBATCH --array=90-9999
+#SBATCH --array=0-3943
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=sb2406@cam.ac.uk
-#SBATCH --output=/home/sb2406/rds/hpc-work/TILTomorrow_model_interpretations/v2-0/hpc_logs/timeSHAP/TILTomorrow_timeSHAP_v2-0_trial_%a.out
+#SBATCH --output=/home/sb2406/rds/hpc-work/TILTomorrow_model_interpretations/v2-0/hpc_logs/timeSHAP/transition_TILTomorrow_timeSHAP_v2-0_trial_%a.out
 
 . /etc/profile.d/modules.sh                # Leave this line (enables the module command)
 module purge
