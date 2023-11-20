@@ -310,7 +310,9 @@ def main(array_task_id):
         curr_wi = curr_timepoints.WindowIdx[curr_trans_row]
         if SHAP_THRESHOLD != 'Expected Value':
             curr_thresh_idx = thresh_labels.index(SHAP_THRESHOLD)
-
+        else:
+            curr_thresh_idx = -1
+            
         # Extract average- and zero-events based on current combination parameters
         curr_avg_event = avg_event_lists[(avg_event_lists.REPEAT==curr_repeat)&(avg_event_lists.FOLD==curr_fold)&(avg_event_lists.TUNE_IDX==curr_tune_idx)&(avg_event_lists.DROPOUT_VARS==curr_dropout_vars)].drop(columns=['REPEAT','FOLD','TUNE_IDX','DROPOUT_VARS']).reset_index(drop=True)
         curr_zero_event = zero_event_lists[(zero_event_lists.REPEAT==curr_repeat)&(zero_event_lists.FOLD==curr_fold)&(zero_event_lists.TUNE_IDX==curr_tune_idx)&(avg_event_lists.DROPOUT_VARS==curr_dropout_vars)].drop(columns=['REPEAT','FOLD','TUNE_IDX','DROPOUT_VARS']).reset_index(drop=True)
@@ -462,8 +464,9 @@ def main(array_task_id):
         avg_compiled_threshold_TILBasic_ts = avg_compiled_threshold_TILBasic_ts.rename(columns={'Shapley Value':'SHAP'})
 
         # Save compiled TimeSHAP values into SHAP subdirectory
-        avg_compiled_threshold_TILBasic_ts.to_pickle(os.path.join(sub_shap_dir,'avg_thresh_TILBasic_features_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
-        
+#         avg_compiled_threshold_TILBasic_ts.to_pickle(os.path.join(sub_shap_dir,'avg_thresh_TILBasic_features_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+        avg_compiled_threshold_TILBasic_ts.to_pickle(os.path.join(sub_shap_dir,'avg_trans_TILBasic_features_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+
     # Based on availability, save compiled TimeSHAP values
     if zero_compiled_threshold_TILBasic_ts:
         
@@ -474,8 +477,9 @@ def main(array_task_id):
         zero_compiled_threshold_TILBasic_ts = zero_compiled_threshold_TILBasic_ts.rename(columns={'Shapley Value':'SHAP'})
 
         # Save compiled TimeSHAP values into SHAP subdirectory
-        zero_compiled_threshold_TILBasic_ts.to_pickle(os.path.join(sub_shap_dir,'zero_thresh_TILBasic_features_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
-        
+#         zero_compiled_threshold_TILBasic_ts.to_pickle(os.path.join(sub_shap_dir,'zero_thresh_TILBasic_features_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+        zero_compiled_threshold_TILBasic_ts.to_pickle(os.path.join(sub_shap_dir,'zero_trans_TILBasic_features_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+
     # Based on availability, save compiled TimeSHAP values
     if avg_compiled_threshold_TILBasic_event_ts:
         
@@ -486,8 +490,9 @@ def main(array_task_id):
         avg_compiled_threshold_TILBasic_event_ts = avg_compiled_threshold_TILBasic_event_ts.rename(columns={'Shapley Value':'SHAP'})
 
         # Save compiled TimeSHAP values into SHAP subdirectory
-        avg_compiled_threshold_TILBasic_event_ts.to_pickle(os.path.join(sub_shap_dir,'avg_thresh_TILBasic_event_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
-        
+#         avg_compiled_threshold_TILBasic_event_ts.to_pickle(os.path.join(sub_shap_dir,'avg_thresh_TILBasic_event_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+        avg_compiled_threshold_TILBasic_event_ts.to_pickle(os.path.join(sub_shap_dir,'avg_trans_TILBasic_event_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+
     # Based on availability, save compiled TimeSHAP values
     if zero_compiled_threshold_TILBasic_event_ts:
         
@@ -498,8 +503,9 @@ def main(array_task_id):
         zero_compiled_threshold_TILBasic_event_ts = zero_compiled_threshold_TILBasic_event_ts.rename(columns={'Shapley Value':'SHAP'})
 
         # Save compiled TimeSHAP values into SHAP subdirectory
-        zero_compiled_threshold_TILBasic_event_ts.to_pickle(os.path.join(sub_shap_dir,'zero_thresh_TILBasic_event_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
-        
+#         zero_compiled_threshold_TILBasic_event_ts.to_pickle(os.path.join(sub_shap_dir,'zero_thresh_TILBasic_event_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+        zero_compiled_threshold_TILBasic_event_ts.to_pickle(os.path.join(sub_shap_dir,'zero_trans_TILBasic_event_timeSHAP_values_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+
     # Based on availability, save compiled TimeSHAP values
     if avg_compiled_threshold_TILBasic_missed:
         
@@ -507,8 +513,9 @@ def main(array_task_id):
         avg_compiled_threshold_TILBasic_missed = pd.concat(avg_compiled_threshold_TILBasic_missed,ignore_index=True)
         
         # Save compiled TimeSHAP values into SHAP subdirectory
-        avg_compiled_threshold_TILBasic_missed.to_pickle(os.path.join(missed_timepoints_dir,'avg_missed_timepoints_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
-        
+#         avg_compiled_threshold_TILBasic_missed.to_pickle(os.path.join(missed_timepoints_dir,'avg_missed_timepoints_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+        avg_compiled_threshold_TILBasic_missed.to_pickle(os.path.join(missed_timepoints_dir,'trans_avg_missed_timepoints_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+
     # Based on availability, save compiled TimeSHAP values
     if zero_compiled_threshold_TILBasic_missed:
         
@@ -516,9 +523,10 @@ def main(array_task_id):
         zero_compiled_threshold_TILBasic_missed = pd.concat(zero_compiled_threshold_TILBasic_missed,ignore_index=True)
         
         # Save compiled TimeSHAP values into SHAP subdirectory
-        zero_compiled_threshold_TILBasic_missed.to_pickle(os.path.join(missed_timepoints_dir,'zero_missed_timepoints_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
-        
+#         zero_compiled_threshold_TILBasic_missed.to_pickle(os.path.join(missed_timepoints_dir,'zero_missed_timepoints_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+        zero_compiled_threshold_TILBasic_missed.to_pickle(os.path.join(missed_timepoints_dir,'trans_zero_missed_timepoints_partition_idx_'+str(array_task_id).zfill(4)+'.pkl'))
+
 if __name__ == '__main__':
     
-    array_task_id = int(sys.argv[1])+1
+    array_task_id = int(sys.argv[1])
     main(array_task_id)

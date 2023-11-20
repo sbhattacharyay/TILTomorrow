@@ -265,7 +265,7 @@ class timeshap_TILTomorrow_model(nn.Module):
         Args:
             tiltomorrow_model (LightningModule): trained dynTTM model from which to extract layers
             rnn_type (string, 'LSTM' or 'GRU'): Identify RNN architecture type
-            threshold_idx (int): index of the GOSE threshold to focus on for TimeSHAP. If -1, then represents expected GOSE outcome as TimeSHAP target
+            threshold_idx (int): index of the TomorrowTILBasic threshold to focus on for TimeSHAP. If -1, then represents expected TomorrowTILBasic outcome as TimeSHAP target
             unknown_index (int): Embedding layer index corresponding to '<unk>' token
             cols_to_add (int): Number of rows to add to embedding layer to account for unknown indices
         """
@@ -308,7 +308,7 @@ class timeshap_TILTomorrow_model(nn.Module):
         # Embed input and divide by row sums
         curr_embedding_out = F.relu(torch.matmul(x,self.comb_embedding) / row_sums)
         
-        # Obtain RNN output and transform to GOSE space
+        # Obtain RNN output and transform to TomorrowTILBasic space
         if hidden_states is None:
             curr_rnn_out, curr_rnn_hidden = self.rnn_module(curr_embedding_out)
         else:
