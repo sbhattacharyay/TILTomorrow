@@ -74,13 +74,14 @@ from functions.model_building import collate_batch, df_to_multihot_matrix
 VERSION = 'v2-0'
 
 # Set threshold at which to calculate TimeSHAP values
-SHAP_THRESHOLD = 'TILBasic>3'
+# SHAP_THRESHOLD = 'TILBasic>3'
+SHAP_THRESHOLD = 'Expected Value'
 
 # Set window indices at which to calculate TimeSHAP values
-SHAP_WINDOW_INDICES = [1,2,3,4,5,6,7]
+# SHAP_WINDOW_INDICES = [1,2,3,4,5,6,7]
 
 # Set number of maximum array tasks in HPC job
-MAX_ARRAY_TASKS = 10000
+MAX_ARRAY_TASKS = 3943
 
 # Set timepoints at which to visualise TimeSHAP values
 PLOT_TIMEPOINTS = ['all','high_TIL_transitions']
@@ -162,7 +163,7 @@ for path in Path(os.path.join(sub_shap_dir)).rglob('*_timeSHAP_values_partition_
 # Characterise found TimeSHAP dataframe files
 tsx_info_df = pd.DataFrame({'FILE':tsx_files,
                             'VERSION':[re.search('model_interpretations/(.*)/timeSHAP', curr_file).group(1) for curr_file in tsx_files],
-                            'BASELINE':[re.search('parallel_results/(.*)_thresh_', curr_file).group(1) for curr_file in tsx_files],
+                            'BASELINE':[re.search('parallel_results/(.*)_trans_', curr_file).group(1) for curr_file in tsx_files],
                             'TYPE':[re.search('TILBasic_(.*)_timeSHAP_values', curr_file).group(1) for curr_file in tsx_files],
                             'PARTITION_IDX':[int(re.search('partition_idx_(.*).pkl', curr_file).group(1)) for curr_file in tsx_files]
                            }).sort_values(by=['PARTITION_IDX','TYPE','BASELINE']).reset_index(drop=True)
@@ -170,17 +171,18 @@ tsx_info_df = pd.DataFrame({'FILE':tsx_files,
 # Identify TimeSHAP significant timepoints that were missed based on stored files
 missed_timepoint_files = []
 for path in Path(os.path.join(missed_timepoint_dir)).rglob('*_missed_timepoints_partition_idx_*'):
-    missed_timepoint_files.append(str(path.resolve()))
+    if 'trans' in str(path.resolve()):
+        missed_timepoint_files.append(str(path.resolve()))
 
 # Characterise found missing timepoint dataframe files
 missed_info_df = pd.DataFrame({'FILE':missed_timepoint_files,
                                'VERSION':[re.search('model_interpretations/(.*)/timeSHAP', curr_file).group(1) for curr_file in missed_timepoint_files],
-                               'BASELINE':[re.search('missed_timepoints/(.*)_missed_', curr_file).group(1) for curr_file in missed_timepoint_files],
+                               'BASELINE':[re.search('missed_timepoints/trans_(.*)_missed_', curr_file).group(1) for curr_file in missed_timepoint_files],
                                'PARTITION_IDX':[int(re.search('partition_idx_(.*).pkl', curr_file).group(1)) for curr_file in missed_timepoint_files]
                               }).sort_values(by=['PARTITION_IDX','BASELINE']).reset_index(drop=True)
 
 # Determine partition indices that have not yet been accounted for
-full_range = list(range(1,MAX_ARRAY_TASKS+1))
+full_range = list(range(0,MAX_ARRAY_TASKS+1))
 remaining_partition_indices = np.sort(list(set(full_range)-set(tsx_info_df.PARTITION_IDX)-set(missed_info_df.PARTITION_IDX))).tolist()
 
 # Create partitions for TimeSHAP configurations that are unaccounted for
@@ -198,20 +200,20 @@ compiled_missed_timepoints = pd.concat([pd.read_pickle(f) for f in tqdm(missed_i
 compiled_missed_timepoints['Threshold'] = SHAP_THRESHOLD
     
 # Save compiled missed timepoints dataframe into TimeSHAP directory
-compiled_missed_timepoints.to_pickle(os.path.join(shap_dir,'missed_timepoints.pkl'))
+compiled_missed_timepoints.to_pickle(os.path.join(shap_dir,'transition_missed_timepoints.pkl'))
 
 ## Load, compile, and save TimeSHAP values
 # Load and concatenate completed feature TimeSHAP dataframes in parallel
 compiled_feature_timeSHAP_values = pd.concat([pd.read_pickle(f) for f in tqdm(tsx_info_df.FILE[tsx_info_df.TYPE=='features'],'Loading feature TimeSHAP files')],ignore_index=True)
 
 # Save compiled feature TimeSHAP values dataframe into TimeSHAP directory
-compiled_feature_timeSHAP_values.to_pickle(os.path.join(shap_dir,'feature_timeSHAP_values.pkl'))
+compiled_feature_timeSHAP_values.to_pickle(os.path.join(shap_dir,'transition_feature_timeSHAP_values.pkl'))
 
 # Load and concatenate completed event TimeSHAP dataframes in parallel
 compiled_event_timeSHAP_values = pd.concat([pd.read_pickle(f) for f in tqdm(tsx_info_df.FILE[tsx_info_df.TYPE=='event'],'Loading event TimeSHAP files')],ignore_index=True)
 
 # Save compiled event TimeSHAP values dataframe into TimeSHAP directory
-compiled_event_timeSHAP_values.to_pickle(os.path.join(shap_dir,'event_timeSHAP_values.pkl'))
+compiled_event_timeSHAP_values.to_pickle(os.path.join(shap_dir,'transition_event_timeSHAP_values.pkl'))
 
 # ## After compiling and saving values, delete individual files
 # # Delete missed timepoint files
@@ -222,7 +224,7 @@ compiled_event_timeSHAP_values.to_pickle(os.path.join(shap_dir,'event_timeSHAP_v
 
 ### III. Prepare combinations of parameters for TimeSHAP value filtering for visualisation
 ## Load compiled TimeSHAP values dataframe from TimeSHAP directory
-compiled_feature_timeSHAP_values = pd.read_pickle(os.path.join(shap_dir,'feature_timeSHAP_values.pkl')).rename(columns={'Feature':'Token'}).drop(columns=['Random seed','NSamples'])
+compiled_feature_timeSHAP_values = pd.read_pickle(os.path.join(shap_dir,'transition_feature_timeSHAP_values.pkl')).rename(columns={'Feature':'Token'}).drop(columns=['Random seed','NSamples'])
 
 ## Prepare timepoints to focus TimeSHAP visualisation
 # Isolate combinations of GUPI-WindowIdx available among calculated TimeSHAP values
