@@ -8,7 +8,8 @@
 # I. Initialisation
 # II. Compile TimeSHAP values and clean directory
 # III. Prepare combinations of parameters for TimeSHAP value filtering for visualisation
-# IV. Prepare TimeSHAP values for visualisation
+# IV. Identify features for visualisation based on TimeSHAP values
+# V. Prepare feature TimeSHAP values for visualisation
 
 
 
@@ -17,7 +18,7 @@
 # VI. Examine tokens with differing effects across thresholds
 
 ### I. Initialisation
-# Fundamental libraries
+# Fundamental li3braries
 import os
 import re
 import sys
@@ -84,10 +85,22 @@ SHAP_THRESHOLD = 'Expected Value'
 MAX_ARRAY_TASKS = 3943
 
 # Set timepoints at which to visualise TimeSHAP values
-PLOT_TIMEPOINTS = ['all','high_TIL_transitions']
+PLOT_TIMEPOINTS = ['difference_transitions','all_transitions']
+
+# Set directionality requirement
+DIR_REQUIREMENT = ['yes','not_necessary']
+
+# Set correct change-in-prediction requirement
+CORRECT_PRED_REQUIREMENT = ['yes','not_necessary']
+
+# Set baselines for TimeSHAP calculation
+SHAP_BASELINE = ['Average','Zero']
+
+# Whether to include `UnknownNonMissing` tokens
+UNK_NON_MISSING_TOKENS = ['yes','no']
 
 # Set variable subsets for TimeSHAP visualisation
-VAR_SUBSETS = ['nonmissing_all','nonmissing_type','missing','nonmissing_clinician_impressions_and_treatments','nonmissing_numeric']
+VAR_SUBSETS = ['nonmissing_all','nonmissing_TILBasic','nonmissing_static_dynamic','nonmissing_type','missing']
 
 ## Define and create relevant directories
 # Define directory in which CENTER-TBI data is stored
@@ -152,6 +165,15 @@ timeshap_partitions = pd.read_pickle(os.path.join(shap_dir,'timeSHAP_partitions.
 full_token_keys = pd.read_excel(os.path.join(tokens_dir,'TILTomorrow_full_token_keys_'+VERSION+'.xlsx'))
 full_token_keys.Token = full_token_keys.Token.fillna('')
 full_token_keys.BaseToken = full_token_keys.BaseToken.fillna('')
+
+# Disregarding missing and `UnknownNonMissing` tokens, calculate the relative token rank of each token
+full_token_keys['TokenRankIdx'] = full_token_keys[(~full_token_keys.Missing)&(~full_token_keys.UnknownNonMissing)].groupby('BaseToken')['Token'].rank(method='dense')-1
+
+# If an order index already exists, replace newly calculate token rank index with that value
+full_token_keys['TokenRankIdx'][((full_token_keys.OrderIdx)!=(full_token_keys.TokenRankIdx))&(full_token_keys.OrderIdx.notna())] = full_token_keys['OrderIdx'][((full_token_keys.OrderIdx)!=(full_token_keys.TokenRankIdx))&(full_token_keys.OrderIdx.notna())]
+
+# Add a column corresponding to maximum possible rank index per BaseToken
+full_token_keys['MaxTokenRankIdx'] = full_token_keys.groupby('BaseToken')['TokenRankIdx'].transform(max)
 
 ### II. Compile TimeSHAP values and clean directory
 ## Find completed TimeSHAP configurations and log remaining configurations, if any
@@ -227,146 +249,396 @@ compiled_event_timeSHAP_values.to_pickle(os.path.join(shap_dir,'transition_event
 compiled_feature_timeSHAP_values = pd.read_pickle(os.path.join(shap_dir,'transition_feature_timeSHAP_values.pkl')).rename(columns={'Feature':'Token'}).drop(columns=['Random seed','NSamples'])
 
 ## Prepare timepoints to focus TimeSHAP visualisation
-# Isolate combinations of GUPI-WindowIdx available among calculated TimeSHAP values
-uniq_GUPI_WIs = compiled_feature_timeSHAP_values[['GUPI','WindowIdx']].drop_duplicates(ignore_index=True)
+# Load and clean dataframe containing formatted TIL scores
+formatted_TIL_values = pd.read_csv(os.path.join(form_TIL_dir,'formatted_TIL_values.csv'),na_values=["NA","NaN","", " "])[['GUPI','TILTimepoint','TILDate','TILBasic']]
+formatted_TIL_values['TILDate'] = pd.to_datetime(formatted_TIL_values['TILDate'],format = '%Y-%m-%d')
 
-# Merge outcome information to unique GUPI-window-index combinations
-uniq_GUPI_WIs = uniq_GUPI_WIs.merge(study_time_windows[['GUPI','WindowIdx','WindowTotal','TomorrowTILBasic']],how='left')
+# Calculate differences in TILTimepoint and TILBasic values
+formatted_TIL_values['dTILTimepoint'] = formatted_TIL_values.groupby(['GUPI'],as_index=False)['TILTimepoint'].diff()
+formatted_TIL_values['dTILBasic'] = formatted_TIL_values.groupby(['GUPI'],as_index=False)['TILBasic'].diff()
 
-# Add an indicator for points in which TomorrowTILBasic is 4
-uniq_GUPI_WIs['TomorrowTILBasic>3'] = np.nan
-uniq_GUPI_WIs['TomorrowTILBasic>3'][uniq_GUPI_WIs.TomorrowTILBasic>3] = 1
-uniq_GUPI_WIs['TomorrowTILBasic>3'][uniq_GUPI_WIs.TomorrowTILBasic<=3] = 0
+# Filter to timepoints of consecutive-day transition
+consec_day_trans = formatted_TIL_values[(formatted_TIL_values.dTILTimepoint==1)&(formatted_TIL_values.dTILBasic!=0)&(formatted_TIL_values.TILTimepoint>1)].reset_index(drop=True)
 
-# Calculate difference at threshold per GUPI
-uniq_GUPI_WIs['DiffTomorrowTILBasic>3'] = uniq_GUPI_WIs.groupby('GUPI')['TomorrowTILBasic>3'].diff()
+# Modify dataframe timepoint and date information to match those of previous day (at time of prediction)
+consec_day_trans['WindowIdx'] = consec_day_trans['TILTimepoint'] - 1
+consec_day_trans['TimeStampStart'] = consec_day_trans['TILDate'] - pd.DateOffset(days=1)
+consec_day_trans = consec_day_trans.drop(columns=['TILTimepoint','TILDate']).rename(columns={'TILBasic':'TomorrowTILBasic'})
 
-# Create a marker for transition timepoints
-uniq_GUPI_WIs['TomorrowTILBasic>3Transition'] = (uniq_GUPI_WIs['DiffTomorrowTILBasic>3'].abs() == 1).astype(int)
+# Load and clean dataframe containing ICU daily windows of study participants
+study_windows = pd.read_csv(os.path.join(form_TIL_dir,'study_window_timestamps_outcomes.csv'),na_values=["NA","NaN","", " "])[['GUPI','WindowIdx','WindowTotal','TimeStampStart']]
+study_windows['TimeStampStart'] = pd.to_datetime(study_windows['TimeStampStart'],format = '%Y-%m-%d')
+
+# Using right-merge, filter consecutive-day transitions corresponding to study windows
+consec_day_trans = study_windows.merge(consec_day_trans,how='inner')
+
+# Ensure consecutive-day transitions are represented in compiled TimeSHAP values
+consec_day_trans = consec_day_trans.merge(compiled_feature_timeSHAP_values[['GUPI','WindowIdx']].drop_duplicates(ignore_index=True),how='inner')
+
+# Load and filter testing set outputs
+test_outputs_df = pd.read_pickle(os.path.join(model_dir,'TomorrowTILBasic_compiled_test_calibrated_outputs.pkl'))
+test_outputs_df = test_outputs_df[(test_outputs_df.TUNE_IDX.isin(compiled_feature_timeSHAP_values.TUNE_IDX))].reset_index(drop=True)
+
+# Remove logit columns
+logit_cols = [col for col in test_outputs_df if col.startswith('z_TILBasic=')]
+test_outputs_df = test_outputs_df.drop(columns=logit_cols).reset_index(drop=True)
+
+# Calculate threshold-based output probabilities
+prob_cols = [col for col in test_outputs_df if col.startswith('Pr(TILBasic=')]
+thresh_labels = ['TILBasic>0','TILBasic>1','TILBasic>2','TILBasic>3']
+for thresh in range(1,len(prob_cols)):
+    cols_gt = prob_cols[thresh:]
+    prob_gt = test_outputs_df[cols_gt].sum(1).values
+    gt = (test_outputs_df['TrueLabel'] >= thresh).astype(float).values
+    gt[test_outputs_df.TrueLabel.isna()] = np.nan
+    test_outputs_df['Pr('+thresh_labels[thresh-1]+')'] = prob_gt
+    test_outputs_df[thresh_labels[thresh-1]] = gt
+
+# Calculate overall expected value
+prob_matrix = test_outputs_df[prob_cols]
+prob_matrix.columns = list(range(prob_matrix.shape[1]))
+index_vector = np.array(list(range(prob_matrix.shape[1])), ndmin=2).T
+test_outputs_df['ExpectedValue'] = np.matmul(prob_matrix.values,index_vector)
+
+# Remove TILBasic probability columns
+test_outputs_df = test_outputs_df.drop(columns=prob_cols).reset_index(drop=True)
+
+# For the sake of transition probing, calculate day-to-day difference in model output expected value
+test_outputs_df['dExpectedValue'] = test_outputs_df.groupby(['GUPI','TUNE_IDX','REPEAT','FOLD','SET'],as_index=False)['ExpectedValue'].diff()
+
+# Merge difference in expected value outputs onto consecutive-day transition dataframe
+consec_day_trans = test_outputs_df[['TUNE_IDX','REPEAT','FOLD','GUPI','WindowIdx','dExpectedValue']].merge(consec_day_trans,how='inner')
+
+# Extract timepoints corresponding to fully captured transitions
+captured_day_trans = consec_day_trans[consec_day_trans.dExpectedValue.notna()].reset_index(drop=True)
+
+# Extract timepoints corresponding to correctly directed transitions
+correct_day_trans = captured_day_trans[captured_day_trans.dExpectedValue.apply(np.sign)==captured_day_trans.dTILBasic.apply(np.sign)].reset_index(drop=True)
+
+# # Isolate combinations of GUPI-WindowIdx available among calculated TimeSHAP values
+# uniq_GUPI_WIs = compiled_feature_timeSHAP_values[['GUPI','WindowIdx']].drop_duplicates(ignore_index=True)
+
+# # Merge outcome information to unique GUPI-window-index combinations
+# uniq_GUPI_WIs = uniq_GUPI_WIs.merge(study_time_windows[['GUPI','WindowIdx','WindowTotal','TomorrowTILBasic']],how='left')
+
+# # Add an indicator for points in which TomorrowTILBasic is 4
+# uniq_GUPI_WIs['TomorrowTILBasic>3'] = np.nan
+# uniq_GUPI_WIs['TomorrowTILBasic>3'][uniq_GUPI_WIs.TomorrowTILBasic>3] = 1
+# uniq_GUPI_WIs['TomorrowTILBasic>3'][uniq_GUPI_WIs.TomorrowTILBasic<=3] = 0
+
+# # Calculate difference at threshold per GUPI
+# uniq_GUPI_WIs['DiffTomorrowTILBasic>3'] = uniq_GUPI_WIs.groupby('GUPI')['TomorrowTILBasic>3'].diff()
+
+# # Create a marker for transition timepoints
+# uniq_GUPI_WIs['TomorrowTILBasic>3Transition'] = (uniq_GUPI_WIs['DiffTomorrowTILBasic>3'].abs() == 1).astype(int)
 
 ## Create parametric combinations for TimeSHAP visualisation
 # Determine the unique types of dropout variables in sensitivity analysis
 uniq_dropout_vars = compiled_feature_timeSHAP_values.DROPOUT_VARS.unique()
 
 # Expand combinations of TimeSHAP visualization parameters to create grid for TimeSHAP filtering
-timeshap_viz_grid = pd.DataFrame(np.array(np.meshgrid(uniq_dropout_vars,PLOT_TIMEPOINTS,VAR_SUBSETS)).T.reshape(-1,3),columns=['DROPOUT_VARS','PLOT_TIMEPOINTS','VAR_SUBSETS']).sort_values(by=['DROPOUT_VARS','PLOT_TIMEPOINTS','VAR_SUBSETS'],ignore_index=True)
+timeshap_viz_grid = pd.DataFrame(np.array(np.meshgrid(uniq_dropout_vars,PLOT_TIMEPOINTS,DIR_REQUIREMENT,CORRECT_PRED_REQUIREMENT,SHAP_BASELINE,UNK_NON_MISSING_TOKENS,VAR_SUBSETS)).T.reshape(-1,7),columns=['DROPOUT_VARS','PLOT_TIMEPOINTS','DIR_REQUIREMENT','CORRECT_PRED_REQUIREMENT','SHAP_BASELINE','UNK_NON_MISSING_TOKENS','VAR_SUBSETS']).sort_values(by=['DROPOUT_VARS','PLOT_TIMEPOINTS','DIR_REQUIREMENT','CORRECT_PRED_REQUIREMENT','SHAP_BASELINE','UNK_NON_MISSING_TOKENS','VAR_SUBSETS'],ignore_index=True)
+timeshap_viz_grid.insert(loc=0,value=list(range(1,timeshap_viz_grid.shape[0]+1)),column='VIZ_IDX')
 
-# Remove implausible combinations
-timeshap_viz_grid = timeshap_viz_grid[~((timeshap_viz_grid.DROPOUT_VARS.str.contains('clinician_impressions')|timeshap_viz_grid.DROPOUT_VARS.str.contains('treatments'))&(timeshap_viz_grid.VAR_SUBSETS=='nonmissing_clinician_impressions_and_treatments'))].reset_index(drop=True)
+# # Remove implausible combinations
+# timeshap_viz_grid = timeshap_viz_grid[~((timeshap_viz_grid.DROPOUT_VARS.str.contains('clinician_impressions')|timeshap_viz_grid.DROPOUT_VARS.str.contains('treatments'))&(timeshap_viz_grid.VAR_SUBSETS=='nonmissing_clinician_impressions_and_treatments'))].reset_index(drop=True)
 
-### III. Prepare TimeSHAP values for visualisation
-## Prepare TimeSHAP value dataframe
-# Merge transition marker to compiled TimeSHAP values dataframe
-compiled_feature_timeSHAP_values = compiled_feature_timeSHAP_values.merge(uniq_GUPI_WIs[['GUPI','WindowIdx','TomorrowTILBasic>3Transition']],how='left')
+### IV. Identify features for visualisation based on TimeSHAP values
+## Filter SHAP values to days corresponding to consecutive-day transitions
+# Filter feature TimeSHAP values corresponding to captured transitions
+trans_day_feature_timeSHAP_values = compiled_feature_timeSHAP_values.merge(consec_day_trans[['TUNE_IDX','REPEAT','FOLD','GUPI','WindowIdx','dExpectedValue','dTILBasic','TomorrowTILBasic']],how='inner').drop(columns=['PruneIdx'])
+trans_day_feature_timeSHAP_values['TILBasic'] = trans_day_feature_timeSHAP_values['TomorrowTILBasic'] - trans_day_feature_timeSHAP_values['dTILBasic']
+trans_day_feature_timeSHAP_values = trans_day_feature_timeSHAP_values.drop(columns=['TomorrowTILBasic'])
 
-# Average SHAP values across repeated cross-validation partitions
-summarised_feature_timeSHAP_values = compiled_feature_timeSHAP_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','GUPI','Threshold','Token','WindowIdx','TomorrowTILBasic>3Transition'],as_index=False)['SHAP'].mean()
+# Mark whether the transition was correctly reflected in overall change
+trans_day_feature_timeSHAP_values['CorrectPred'] = 0
+trans_day_feature_timeSHAP_values.CorrectPred[(trans_day_feature_timeSHAP_values.dExpectedValue.apply(np.sign))==(trans_day_feature_timeSHAP_values.dTILBasic.apply(np.sign))] = 1
 
-# For the purpose of all-timepoint "important" feature selection, average SHAP values across all window indices per patient
-all_tp_GUPI_level_timeSHAP_summaries = summarised_feature_timeSHAP_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','GUPI','Threshold','Token'],as_index=False)['SHAP'].mean().reset_index(drop=True)
+## Calculate difference-in-SHAP values for consecutive-day transitions
+# Filter feature TimeSHAP values corresponding to captured transitions
+trans_diff_feature_timeSHAP_values = compiled_feature_timeSHAP_values.merge(captured_day_trans[['TUNE_IDX','REPEAT','FOLD','GUPI','WindowIdx','dExpectedValue','dTILBasic','TomorrowTILBasic']],how='inner').drop(columns=['PruneIdx'])
+trans_diff_feature_timeSHAP_values['TILBasic'] = trans_diff_feature_timeSHAP_values['TomorrowTILBasic'] - trans_diff_feature_timeSHAP_values['dTILBasic']
+trans_diff_feature_timeSHAP_values = trans_diff_feature_timeSHAP_values.drop(columns=['TomorrowTILBasic'])
 
-# For the purpose of transition-timepoint "important" feature selection, average SHAP values across High-TIL transition window indices per patient
-high_TIL_transition_GUPI_level_timeSHAP_summaries = summarised_feature_timeSHAP_values[summarised_feature_timeSHAP_values['TomorrowTILBasic>3Transition']==1].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','GUPI','Threshold','Token'],as_index=False)['SHAP'].mean().reset_index(drop=True)
+# Filter feature TimeSHAP values corresponding to days preceding captured transitions
+pre_captured_day_trans = captured_day_trans.copy()
+pre_captured_day_trans.WindowIdx = pre_captured_day_trans.WindowIdx - 1
+pre_trans_diff_feature_timeSHAP_values = compiled_feature_timeSHAP_values.merge(pre_captured_day_trans[['TUNE_IDX','REPEAT','FOLD','GUPI','WindowIdx']],how='inner').rename(columns={'WindowIdx':'PriorWindowIdx','SHAP':'PriorSHAP'}).drop(columns=['PruneIdx'])
+pre_trans_diff_feature_timeSHAP_values['WindowIdx'] = pre_trans_diff_feature_timeSHAP_values['PriorWindowIdx']+1
 
-# Concatenate the GUPI-level token TimeSHAP value summaries
-all_tp_GUPI_level_timeSHAP_summaries['PLOT_TIMEPOINTS'] = 'all'
-high_TIL_transition_GUPI_level_timeSHAP_summaries['PLOT_TIMEPOINTS'] = 'high_TIL_transitions'
-GUPI_level_timeSHAP_summaries = pd.concat([all_tp_GUPI_level_timeSHAP_summaries,high_TIL_transition_GUPI_level_timeSHAP_summaries],ignore_index=True)
+# Merge TimeSHAP values from day of transition and previous day
+trans_diff_feature_timeSHAP_values = trans_diff_feature_timeSHAP_values.merge(pre_trans_diff_feature_timeSHAP_values,how='left')
 
-# Merge relevant token key information onto GUPI-level TimeSHAP dataframe
-GUPI_level_timeSHAP_summaries = GUPI_level_timeSHAP_summaries.merge(full_token_keys[['Token','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type']],how='left')
+# Impute missing prior TimeSHAP values with 0
+trans_diff_feature_timeSHAP_values.PriorSHAP = trans_diff_feature_timeSHAP_values.PriorSHAP.fillna(0)
+trans_diff_feature_timeSHAP_values.PriorWindowIdx = trans_diff_feature_timeSHAP_values.WindowIdx - 1
+
+# Calculate difference in SHAP values in consecutive days
+trans_diff_feature_timeSHAP_values['DiffSHAP'] = trans_diff_feature_timeSHAP_values.SHAP - trans_diff_feature_timeSHAP_values.PriorSHAP
+
+# Mark whether the transition was correctly reflected in overall change
+trans_diff_feature_timeSHAP_values['CorrectPred'] = 0
+trans_diff_feature_timeSHAP_values.CorrectPred[(trans_diff_feature_timeSHAP_values.dExpectedValue.apply(np.sign))==(trans_diff_feature_timeSHAP_values.dTILBasic.apply(np.sign))] = 1
 
 ## Determine "most important" features for each visualisation combination
 # Create a list to store "most important" BaseToken per visualisation combination
 most_important_basetokens = []
 
 # Iterate through TimeSHAP visualisation parameter grid
-for curr_viz_idx in tqdm(range(timeshap_viz_grid.shape[0]),'Iterating through TimeSHAP visualisation parameter grid'):
+for curr_viz_idx in tqdm(timeshap_viz_grid.VIZ_IDX.unique(),'Iterating through TimeSHAP visualisation parameter grid'):
     
     # Extract TimeSHAP visualisation parameters based off current index
-    curr_dropout_vars = timeshap_viz_grid.DROPOUT_VARS[curr_viz_idx]
-    curr_plot_tp = timeshap_viz_grid.PLOT_TIMEPOINTS[curr_viz_idx]
-    curr_var_subsets = timeshap_viz_grid.VAR_SUBSETS[curr_viz_idx]
+    curr_dropout_vars = timeshap_viz_grid.DROPOUT_VARS[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_plot_tp = timeshap_viz_grid.PLOT_TIMEPOINTS[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_dir_req = timeshap_viz_grid.DIR_REQUIREMENT[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_pred_req = timeshap_viz_grid.CORRECT_PRED_REQUIREMENT[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_baseline = timeshap_viz_grid.SHAP_BASELINE[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_unk_tokens = timeshap_viz_grid.UNK_NON_MISSING_TOKENS[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_var_subsets = timeshap_viz_grid.VAR_SUBSETS[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+
+    ## Filter TimeSHAP feature values based on current visualisation parameters
+    # Select dataframe to filter from based off plot timepoints
+    if curr_plot_tp == 'all_transitions':
+        curr_timeshap_values = trans_day_feature_timeSHAP_values[(trans_day_feature_timeSHAP_values.DROPOUT_VARS==curr_dropout_vars)&(trans_day_feature_timeSHAP_values.BaselineFeatures==curr_baseline)].reset_index(drop=True)
+    elif curr_plot_tp == 'difference_transitions':
+        curr_timeshap_values = trans_diff_feature_timeSHAP_values[(trans_diff_feature_timeSHAP_values.DROPOUT_VARS==curr_dropout_vars)&(trans_diff_feature_timeSHAP_values.BaselineFeatures==curr_baseline)].reset_index(drop=True)
+
+    # Filter based on feature-effect directionality requirement
+    if curr_dir_req == 'yes':
+        if curr_plot_tp == 'all_transitions':
+            curr_timeshap_values = curr_timeshap_values[(curr_timeshap_values.dTILBasic.apply(np.sign))==(curr_timeshap_values.SHAP.apply(np.sign))].reset_index(drop=True)
+        elif curr_plot_tp == 'difference_transitions':
+            curr_timeshap_values = curr_timeshap_values[(curr_timeshap_values.dTILBasic.apply(np.sign))==(curr_timeshap_values.DiffSHAP.apply(np.sign))].reset_index(drop=True)
+
+    # Filter based on correct prediction direction requirement
+    if curr_pred_req == 'yes':
+        curr_timeshap_values = curr_timeshap_values[curr_timeshap_values.CorrectPred==1].reset_index(drop=True)
+
+    # Filter based on inclusion of unknown, but not missing, tokens
+    if curr_unk_tokens == 'no':
+        curr_timeshap_values = curr_timeshap_values[~curr_timeshap_values.Token.isin(full_token_keys[full_token_keys.UnknownNonMissing].Token)].reset_index(drop=True)
+        
+    # Filter based on variable subsets
+    if curr_var_subsets.startswith('nonmissing'):
+        curr_timeshap_values = curr_timeshap_values[~curr_timeshap_values.Token.isin(full_token_keys[full_token_keys.Missing].Token)].reset_index(drop=True)
+    elif curr_var_subsets.startswith('missing'):
+        curr_timeshap_values = curr_timeshap_values[curr_timeshap_values.Token.isin(full_token_keys[full_token_keys.Missing].Token)].reset_index(drop=True)
+
+    ## Select the "most-important" tokens per visualisation parameters
+    # Average SHAP values across repeated cross-validation partitions
+    if curr_plot_tp == 'all_transitions':
+        curr_summ_timeSHAP_values = curr_timeshap_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','GUPI','Threshold','Token','WindowIdx','dTILBasic','TILBasic'],as_index=False)['SHAP'].mean().rename(columns={'SHAP':'METRIC'})
+    elif curr_plot_tp == 'difference_transitions':
+        curr_summ_timeSHAP_values = curr_timeshap_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','GUPI','Threshold','Token','WindowIdx','dTILBasic','TILBasic'],as_index=False)['DiffSHAP'].mean().rename(columns={'DiffSHAP':'METRIC'})
+
+    # Average SHAP values across all window indices per patient
+    if curr_var_subsets == 'nonmissing_TILBasic':
+        curr_GUPI_timeSHAP_values = curr_summ_timeSHAP_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','GUPI','Threshold','Token','TILBasic'],as_index=False)['METRIC'].mean().reset_index(drop=True)
+    else:
+        curr_GUPI_timeSHAP_values = curr_summ_timeSHAP_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','GUPI','Threshold','Token'],as_index=False)['METRIC'].mean().reset_index(drop=True)
+
+    # Merge relevant token key information onto GUPI-level TimeSHAP dataframe
+    curr_GUPI_timeSHAP_values = curr_GUPI_timeSHAP_values.merge(full_token_keys[['Token','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type']],how='left')
 
     # Calculate token-level TimeSHAP summary statistics based on current visualisation parameters
-    if curr_var_subsets.startswith('missing'):
-        token_level_timeSHAP_summaries = GUPI_level_timeSHAP_summaries[(GUPI_level_timeSHAP_summaries.DROPOUT_VARS==curr_dropout_vars)&(GUPI_level_timeSHAP_summaries.PLOT_TIMEPOINTS==curr_plot_tp)&(GUPI_level_timeSHAP_summaries.Missing==True)].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','BaseToken','Token','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'],as_index=False)['SHAP'].aggregate({'median':np.median,'mean':np.mean,'std':np.std,'instances':'count'}).sort_values('median').reset_index(drop=True)
-    elif curr_var_subsets.endswith('numeric'):
-        token_level_timeSHAP_summaries = GUPI_level_timeSHAP_summaries[(GUPI_level_timeSHAP_summaries.DROPOUT_VARS==curr_dropout_vars)&(GUPI_level_timeSHAP_summaries.PLOT_TIMEPOINTS==curr_plot_tp)&(GUPI_level_timeSHAP_summaries.Numeric==True)].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','BaseToken','Token','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'],as_index=False)['SHAP'].aggregate({'median':np.median,'mean':np.mean,'std':np.std,'instances':'count'}).sort_values('median').reset_index(drop=True)
-    elif curr_var_subsets.endswith('clinician_impressions_and_treatments'):
-        token_level_timeSHAP_summaries = GUPI_level_timeSHAP_summaries[(GUPI_level_timeSHAP_summaries.DROPOUT_VARS==curr_dropout_vars)&(GUPI_level_timeSHAP_summaries.PLOT_TIMEPOINTS==curr_plot_tp)&((GUPI_level_timeSHAP_summaries.ICUIntervention==True)|(GUPI_level_timeSHAP_summaries.ClinicianInput==True))].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','BaseToken','Token','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'],as_index=False)['SHAP'].aggregate({'median':np.median,'mean':np.mean,'std':np.std,'instances':'count'}).sort_values('median').reset_index(drop=True)
-    else:    
-        token_level_timeSHAP_summaries = GUPI_level_timeSHAP_summaries[(GUPI_level_timeSHAP_summaries.DROPOUT_VARS==curr_dropout_vars)&(GUPI_level_timeSHAP_summaries.PLOT_TIMEPOINTS==curr_plot_tp)&(GUPI_level_timeSHAP_summaries.Missing==False)].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','BaseToken','Token','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'],as_index=False)['SHAP'].aggregate({'median':np.median,'mean':np.mean,'std':np.std,'instances':'count'}).sort_values('median').reset_index(drop=True)
-
-    # Calculate overall summary statistics of SHAP per BaseToken, filtering to tokens represented in at least 2 patients
-    basetoken_timeSHAP_summaries = token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 2].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'],as_index=False)['median'].aggregate({'std':np.std,'min':np.min,'q1':lambda x: np.quantile(x,.25),'median':np.median,'q3':lambda x: np.quantile(x,.75),'max':np.max,'mean':np.mean, 'variable_values':'count'}).sort_values('max',ascending=False,ignore_index=True)
-
-    # Select the top 10 `BaseTokens` based on max median token SHAP values according to variable subset type
-    if curr_var_subsets == 'nonmissing_type':
-        top_max_timeSHAP_basetokens = basetoken_timeSHAP_summaries.loc[basetoken_timeSHAP_summaries.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','Type','Baseline'])['max'].head(10).index].reset_index(drop=True)
-        top_max_timeSHAP_basetokens['RankIdx'] = top_max_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','Type','Baseline'])['max'].rank('dense', ascending=False)
+    if curr_var_subsets == 'nonmissing_TILBasic':
+        token_level_timeSHAP_summaries = curr_GUPI_timeSHAP_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Token','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type','TILBasic'],as_index=False)['METRIC'].aggregate({'median':np.median,'mean':np.mean,'std':np.std,'instances':'count'}).sort_values('median').reset_index(drop=True)
     else:
-        top_max_timeSHAP_basetokens = basetoken_timeSHAP_summaries.loc[basetoken_timeSHAP_summaries.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','Baseline'])['max'].head(10).index].reset_index(drop=True)
-        top_max_timeSHAP_basetokens['RankIdx'] = top_max_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','Baseline'])['max'].rank('dense', ascending=False)
+        token_level_timeSHAP_summaries = curr_GUPI_timeSHAP_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Token','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'],as_index=False)['METRIC'].aggregate({'median':np.median,'mean':np.mean,'std':np.std,'instances':'count'}).sort_values('median').reset_index(drop=True)
 
-    # Filter out the top 10 `BaseTokens` from the remaining set 
-    filt_set = basetoken_timeSHAP_summaries.merge(top_max_timeSHAP_basetokens[['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','BaseToken']],how='left', indicator=True)
-    filt_set = filt_set[filt_set['_merge'] == 'left_only'].sort_values('min').drop(columns='_merge').reset_index(drop=True)
-
-    # Select the bottom 10 `BaseTokens` based on min median token SHAP values according to variable subset type
-    if curr_var_subsets == 'nonmissing_type':
-        top_min_timeSHAP_basetokens = filt_set.loc[filt_set.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','Type','Baseline'])['min'].head(10).index].reset_index(drop=True)
-        top_min_timeSHAP_basetokens['RankIdx'] = top_min_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','Type','Baseline'])['min'].rank('dense', ascending=False) + 10
+    # Calculate overall summary statistics of SHAP per BaseToken, filtering to tokens represented in at least 5 (or 10 for full variable set) patients
+    if curr_var_subsets == 'nonmissing_TILBasic':
+        basetoken_timeSHAP_summaries = token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 5].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type','TILBasic'],as_index=False)['median'].aggregate({'std':np.std,'min':np.min,'q1':lambda x: np.quantile(x,.25),'median':np.median,'q3':lambda x: np.quantile(x,.75),'max':np.max,'mean':np.mean, 'variable_values':'count'}).sort_values('max',ascending=False,ignore_index=True)
+        basetoken_timeSHAP_summaries = basetoken_timeSHAP_summaries.merge(token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 5].loc[token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 5].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type','TILBasic'])['median'].idxmax()][['BaseToken','TILBasic','instances']].rename(columns={'instances':'max_token_GUPI_count'}),how='left')
+        basetoken_timeSHAP_summaries = basetoken_timeSHAP_summaries.merge(token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 5].loc[token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 5].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type','TILBasic'])['median'].idxmin()][['BaseToken','TILBasic','instances']].rename(columns={'instances':'min_token_GUPI_count'}),how='left')
+    elif curr_var_subsets == 'nonmissing_all':
+        basetoken_timeSHAP_summaries = token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 10].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'],as_index=False)['median'].aggregate({'std':np.std,'min':np.min,'q1':lambda x: np.quantile(x,.25),'median':np.median,'q3':lambda x: np.quantile(x,.75),'max':np.max,'mean':np.mean, 'variable_values':'count'}).sort_values('max',ascending=False,ignore_index=True)
+        basetoken_timeSHAP_summaries = basetoken_timeSHAP_summaries.merge(token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 10].loc[token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 10].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'])['median'].idxmax()][['BaseToken','instances']].rename(columns={'instances':'max_token_GUPI_count'}),how='left')
+        basetoken_timeSHAP_summaries = basetoken_timeSHAP_summaries.merge(token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 10].loc[token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 10].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'])['median'].idxmin()][['BaseToken','instances']].rename(columns={'instances':'min_token_GUPI_count'}),how='left')
     else:
-        top_min_timeSHAP_basetokens = filt_set.loc[filt_set.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','Baseline'])['min'].head(10).index].reset_index(drop=True)
-        top_min_timeSHAP_basetokens['RankIdx'] = top_min_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','PLOT_TIMEPOINTS','Baseline'])['min'].rank('dense', ascending=False) + 10
+        basetoken_timeSHAP_summaries = token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 5].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'],as_index=False)['median'].aggregate({'std':np.std,'min':np.min,'q1':lambda x: np.quantile(x,.25),'median':np.median,'q3':lambda x: np.quantile(x,.75),'max':np.max,'mean':np.mean, 'variable_values':'count'}).sort_values('max',ascending=False,ignore_index=True)
+        basetoken_timeSHAP_summaries = basetoken_timeSHAP_summaries.merge(token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 5].loc[token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 5].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'])['median'].idxmax()][['BaseToken','instances']].rename(columns={'instances':'max_token_GUPI_count'}),how='left')
+        basetoken_timeSHAP_summaries = basetoken_timeSHAP_summaries.merge(token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 5].loc[token_level_timeSHAP_summaries[token_level_timeSHAP_summaries.instances >= 5].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','Missing','Numeric','Baseline','ICUIntervention','ClinicianInput','Type'])['median'].idxmin()][['BaseToken','instances']].rename(columns={'instances':'min_token_GUPI_count'}),how='left')
+
+    # Select the top 20 `BaseTokens` (or 40 for TILBasic=1) based on max median token SHAP values according to variable subset type
+    if curr_var_subsets == 'nonmissing_type':
+        top_max_timeSHAP_basetokens = basetoken_timeSHAP_summaries.loc[basetoken_timeSHAP_summaries.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','Type'])['max'].head(20).index].reset_index(drop=True)
+        top_max_timeSHAP_basetokens['RankIdx'] = top_max_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','Type'])['max'].rank('dense', ascending=False)
+    elif curr_var_subsets == 'nonmissing_static_dynamic': 
+        top_max_timeSHAP_basetokens = basetoken_timeSHAP_summaries.loc[basetoken_timeSHAP_summaries.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','Baseline'])['max'].head(20).index].reset_index(drop=True)
+        top_max_timeSHAP_basetokens['RankIdx'] = top_max_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','Baseline'])['max'].rank('dense', ascending=False)
+    elif curr_var_subsets == 'nonmissing_TILBasic':
+        top_max_timeSHAP_basetokens = basetoken_timeSHAP_summaries[~basetoken_timeSHAP_summaries.TILBasic.isin([0,4])].loc[basetoken_timeSHAP_summaries[~basetoken_timeSHAP_summaries.TILBasic.isin([0,4])].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','TILBasic'])['max'].head(20).index].reset_index(drop=True)
+        TILBasic_0_max_timeSHAP_basetokens = basetoken_timeSHAP_summaries[basetoken_timeSHAP_summaries.TILBasic==0].loc[basetoken_timeSHAP_summaries[basetoken_timeSHAP_summaries.TILBasic==0].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','TILBasic'])['max'].head(40).index].reset_index(drop=True)
+        top_max_timeSHAP_basetokens = pd.concat([top_max_timeSHAP_basetokens,TILBasic_0_max_timeSHAP_basetokens],ignore_index=True)
+        top_max_timeSHAP_basetokens['RankIdx'] = top_max_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','TILBasic'])['max'].rank('dense', ascending=False)
+    else:
+        top_max_timeSHAP_basetokens = basetoken_timeSHAP_summaries.loc[basetoken_timeSHAP_summaries.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold'])['max'].head(20).index].reset_index(drop=True)
+        top_max_timeSHAP_basetokens['RankIdx'] = top_max_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold'])['max'].rank('dense', ascending=False)
+
+    # Filter out the top 20 `BaseTokens` from the remaining set 
+    if curr_var_subsets == 'nonmissing_TILBasic':
+        filt_set = basetoken_timeSHAP_summaries.merge(top_max_timeSHAP_basetokens[['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken','TILBasic']],how='left', indicator=True)
+        filt_set = filt_set[filt_set['_merge'] == 'left_only'].sort_values('min').drop(columns='_merge').reset_index(drop=True)
+    else:
+        filt_set = basetoken_timeSHAP_summaries.merge(top_max_timeSHAP_basetokens[['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','BaseToken']],how='left', indicator=True)
+        filt_set = filt_set[filt_set['_merge'] == 'left_only'].sort_values('min').drop(columns='_merge').reset_index(drop=True) 
+
+    # Select the bottom 20 `BaseTokens` based on min median token SHAP values according to variable subset type
+    if curr_var_subsets == 'nonmissing_type':
+        top_min_timeSHAP_basetokens = filt_set.loc[filt_set.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','Type'])['min'].head(20).index].reset_index(drop=True)
+        top_min_timeSHAP_basetokens['RankIdx'] = top_min_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','Type'])['min'].rank('dense', ascending=False) + 20
+    elif curr_var_subsets == 'nonmissing_static_dynamic':
+        top_min_timeSHAP_basetokens = filt_set.loc[filt_set.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','Baseline'])['min'].head(20).index].reset_index(drop=True)
+        top_min_timeSHAP_basetokens['RankIdx'] = top_min_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','Baseline'])['min'].rank('dense', ascending=False) + 20
+    elif curr_var_subsets == 'nonmissing_TILBasic':
+        top_min_timeSHAP_basetokens = filt_set[~filt_set.TILBasic.isin([0,4])].loc[filt_set[~filt_set.TILBasic.isin([0,4])].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','TILBasic'])['min'].head(20).index].reset_index(drop=True)
+        TILBasic_4_min_timeSHAP_basetokens = filt_set[filt_set.TILBasic==4].loc[filt_set[filt_set.TILBasic==4].groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','TILBasic'])['min'].head(40).index].reset_index(drop=True)
+        top_min_timeSHAP_basetokens = pd.concat([top_min_timeSHAP_basetokens,TILBasic_4_min_timeSHAP_basetokens],ignore_index=True)
+        top_min_timeSHAP_basetokens['RankIdx'] = top_min_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold','TILBasic'])['min'].rank('dense', ascending=False) + 20
+    else:
+        top_min_timeSHAP_basetokens = filt_set.loc[filt_set.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold'])['min'].head(20).index].reset_index(drop=True)
+        top_min_timeSHAP_basetokens['RankIdx'] = top_min_timeSHAP_basetokens.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','Threshold'])['min'].rank('dense', ascending=False) + 20
 
     # Combine top max and min `BaseTokens`
-    top_max_min_timeSHAP_basetokens = pd.concat([top_max_timeSHAP_basetokens,top_min_timeSHAP_basetokens],ignore_index=True).sort_values(by=['BaselineFeatures','Baseline','RankIdx'])
+    if curr_var_subsets == 'nonmissing_TILBasic':
+        top_max_min_timeSHAP_basetokens = pd.concat([top_max_timeSHAP_basetokens,top_min_timeSHAP_basetokens],ignore_index=True).sort_values(by=['BaselineFeatures','TILBasic','RankIdx'])
+    else:
+        top_max_min_timeSHAP_basetokens = pd.concat([top_max_timeSHAP_basetokens,top_min_timeSHAP_basetokens],ignore_index=True).sort_values(by=['BaselineFeatures','RankIdx'])
 
     # Remove trivial rows
     top_max_min_timeSHAP_basetokens = top_max_min_timeSHAP_basetokens[(top_max_min_timeSHAP_basetokens['max']!=0)|((top_max_min_timeSHAP_basetokens['min']!=0))].reset_index(drop=True)
 
     # Clean dataframe and add current visualisation grid parameters
-    top_max_min_timeSHAP_basetokens = top_max_min_timeSHAP_basetokens[['TUNE_IDX', 'DROPOUT_VARS', 'BaselineFeatures', 'Threshold', 'PLOT_TIMEPOINTS', 'Baseline', 'BaseToken', 'Missing', 'Type', 'RankIdx']]
-    top_max_min_timeSHAP_basetokens['VAR_SUBSETS'] = curr_var_subsets
-    
+    if curr_var_subsets == 'nonmissing_TILBasic':
+        top_max_min_timeSHAP_basetokens = top_max_min_timeSHAP_basetokens[['RankIdx','BaseToken','Type','Baseline','TILBasic','min','max','variable_values','max_token_GUPI_count','min_token_GUPI_count']]
+    else:
+        top_max_min_timeSHAP_basetokens = top_max_min_timeSHAP_basetokens[['RankIdx','BaseToken','Type','Baseline','min','max','variable_values','max_token_GUPI_count','min_token_GUPI_count']]
+        top_max_min_timeSHAP_basetokens.insert(column='TILBasic',loc=4,value='All')
+    top_max_min_timeSHAP_basetokens.insert(column='VIZ_IDX',loc=0,value=curr_viz_idx)
+
     # Append formatted "most important" variable dataframe to running list
     most_important_basetokens.append(top_max_min_timeSHAP_basetokens)
 
-# Merge list of most important variable dataframes
+# Concatenate list of most important variable dataframes
 most_important_basetokens = pd.concat(most_important_basetokens,ignore_index=True)
 
-## Filter TimeSHAP values corresponding to most important BaseTokens
-# Merge BaseToken information to TimeSHAP value dataframe
-summarised_feature_timeSHAP_values = summarised_feature_timeSHAP_values.merge(full_token_keys[['Token','BaseToken','Missing']],how='left')
+# Merge TimeSHAP visualisation grid information onto most-important variable list
+most_important_basetokens = most_important_basetokens.merge(timeshap_viz_grid,how='left')
 
-# Merge TimeSHAP value dataframe to most important basetoken dataframe
-filt_feature_timeSHAP_values = summarised_feature_timeSHAP_values.merge(most_important_basetokens,how='right')
+# Save list of most important variable dataframes
+most_important_basetokens.to_csv(os.path.join(shap_dir,'most_important_variables_for_viz.csv'),index=False)
 
-# Ensure plot timepoints match
-filt_feature_timeSHAP_values = filt_feature_timeSHAP_values[(filt_feature_timeSHAP_values.PLOT_TIMEPOINTS=='all')|(filt_feature_timeSHAP_values['TomorrowTILBasic>3Transition']==1)].reset_index(drop=True)
+### V. Prepare feature TimeSHAP values for visualisation
+## Prepare manually inspected "most-important-variable" dataframe
+# Load manually inspected list of most important variables
+most_important_basetokens = pd.read_excel(os.path.join(shap_dir,'manual_most_important_variables_for_viz.xlsx'))
 
-# Ensure variable subsets match
-filt_feature_timeSHAP_values = filt_feature_timeSHAP_values[(filt_feature_timeSHAP_values.VAR_SUBSETS!='missing')|(filt_feature_timeSHAP_values['Missing']==True)].reset_index(drop=True)
+# Filter BaseTokens to those marked for visualisation
+viz_basetokens = most_important_basetokens[most_important_basetokens.KEEP==1].reset_index(drop=True)
 
-# Clean filtered dataframe
-filt_feature_timeSHAP_values = filt_feature_timeSHAP_values[['TUNE_IDX','DROPOUT_VARS','PLOT_TIMEPOINTS','VAR_SUBSETS','Threshold','BaselineFeatures','GUPI','WindowIdx','Baseline','Type','RankIdx','BaseToken','Token','SHAP']]
+# Extract unique visualisation grid indices
+uniq_viz_indices = np.sort(viz_basetokens.VIZ_IDX.unique())
 
-## Save filtered dataframe as separate CSVs for plotting
-# Iterate through TimeSHAP visualisation parameter grid
-for curr_viz_idx in tqdm(range(timeshap_viz_grid.shape[0]),'Iterating through TimeSHAP visualisation parameter grid'):
-    
+# Load manually curated plotting labels for most-important tokens
+token_plotting_labels = pd.read_excel(os.path.join(shap_dir,'token_plotting_labels.xlsx'))
+
+## Prepare feature TimeSHAP values corresponding to included visualisation grid parameters
+# Create empty list to store filtered TimeSHAP values
+viz_timeSHAP_values = []
+
+# Iterate through unique visualisation grid indices of most important base tokens
+for curr_viz_idx in tqdm(uniq_viz_indices,'Iterating through most important basetoken visualisation indices'):
+
+    ## Extract and filter information corresponding to current visualisation index
     # Extract TimeSHAP visualisation parameters based off current index
-    curr_dropout_vars = timeshap_viz_grid.DROPOUT_VARS[curr_viz_idx]
-    curr_plot_tp = timeshap_viz_grid.PLOT_TIMEPOINTS[curr_viz_idx]
-    curr_var_subsets = timeshap_viz_grid.VAR_SUBSETS[curr_viz_idx]
+    curr_dropout_vars = timeshap_viz_grid.DROPOUT_VARS[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_plot_tp = timeshap_viz_grid.PLOT_TIMEPOINTS[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_dir_req = timeshap_viz_grid.DIR_REQUIREMENT[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_pred_req = timeshap_viz_grid.CORRECT_PRED_REQUIREMENT[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_baseline = timeshap_viz_grid.SHAP_BASELINE[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_unk_tokens = timeshap_viz_grid.UNK_NON_MISSING_TOKENS[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
+    curr_var_subsets = timeshap_viz_grid.VAR_SUBSETS[timeshap_viz_grid.VIZ_IDX == curr_viz_idx].values[0]
 
-    # Filter TimeSHAP feature values to current visualisation parameters
-    curr_ft_timeSHAP_values = filt_feature_timeSHAP_values[(filt_feature_timeSHAP_values.PLOT_TIMEPOINTS==curr_plot_tp)&(filt_feature_timeSHAP_values.DROPOUT_VARS==curr_dropout_vars)&(filt_feature_timeSHAP_values.VAR_SUBSETS==curr_var_subsets)].reset_index(drop=True)
+    # Filter most important basetokens corresponding to current visualisation index
+    curr_basetokens = viz_basetokens[viz_basetokens.VIZ_IDX==curr_viz_idx].reset_index(drop=True)
 
-    # Save filtered TimeSHAP feature values 
-    curr_ft_timeSHAP_values.to_csv(os.path.join(viz_feature_dir,'dropout_'+curr_dropout_vars+'_timepoints_'+curr_plot_tp+'_subset_'+curr_var_subsets+'.csv'),index=False)
+    ## Filter TimeSHAP feature values based on current visualisation parameters
+    # Select dataframe to filter from based off plot timepoints
+    if curr_plot_tp == 'all_transitions':
+        curr_timeshap_values = trans_day_feature_timeSHAP_values[(trans_day_feature_timeSHAP_values.DROPOUT_VARS==curr_dropout_vars)&(trans_day_feature_timeSHAP_values.BaselineFeatures==curr_baseline)].reset_index(drop=True)
+    elif curr_plot_tp == 'difference_transitions':
+        curr_timeshap_values = trans_diff_feature_timeSHAP_values[(trans_diff_feature_timeSHAP_values.DROPOUT_VARS==curr_dropout_vars)&(trans_diff_feature_timeSHAP_values.BaselineFeatures==curr_baseline)].reset_index(drop=True)
+
+    # Filter based on feature-effect directionality requirement
+    if curr_dir_req == 'yes':
+        if curr_plot_tp == 'all_transitions':
+            curr_timeshap_values = curr_timeshap_values[(curr_timeshap_values.dTILBasic.apply(np.sign))==(curr_timeshap_values.SHAP.apply(np.sign))].reset_index(drop=True)
+        elif curr_plot_tp == 'difference_transitions':
+            curr_timeshap_values = curr_timeshap_values[(curr_timeshap_values.dTILBasic.apply(np.sign))==(curr_timeshap_values.DiffSHAP.apply(np.sign))].reset_index(drop=True)
+
+    # Filter based on correct prediction direction requirement
+    if curr_pred_req == 'yes':
+        curr_timeshap_values = curr_timeshap_values[curr_timeshap_values.CorrectPred==1].reset_index(drop=True)
+
+    # Filter based on inclusion of unknown, but not missing, tokens
+    if curr_unk_tokens == 'no':
+        curr_timeshap_values = curr_timeshap_values[~curr_timeshap_values.Token.isin(full_token_keys[full_token_keys.UnknownNonMissing].Token)].reset_index(drop=True)
+        
+    # Filter based on variable subsets
+    if curr_var_subsets.startswith('nonmissing'):
+        curr_timeshap_values = curr_timeshap_values[~curr_timeshap_values.Token.isin(full_token_keys[full_token_keys.Missing].Token)].reset_index(drop=True)
+    elif curr_var_subsets.startswith('missing'):
+        curr_timeshap_values = curr_timeshap_values[curr_timeshap_values.Token.isin(full_token_keys[full_token_keys.Missing].Token)].reset_index(drop=True)
+        
+    # Average SHAP values across repeated cross-validation partitions
+    if curr_plot_tp == 'all_transitions':
+        curr_summ_timeSHAP_values = curr_timeshap_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','GUPI','Threshold','Token','WindowIdx','dTILBasic','TILBasic'],as_index=False)['SHAP'].mean().rename(columns={'SHAP':'METRIC'})
+    elif curr_plot_tp == 'difference_transitions':
+        curr_summ_timeSHAP_values = curr_timeshap_values.groupby(['TUNE_IDX','DROPOUT_VARS','BaselineFeatures','GUPI','Threshold','Token','WindowIdx','dTILBasic','TILBasic'],as_index=False)['DiffSHAP'].mean().rename(columns={'DiffSHAP':'METRIC'})
+
+    # Merge token key information onto TimeSHAP dataframe
+    curr_summ_timeSHAP_values = curr_summ_timeSHAP_values.merge(full_token_keys[['Token','BaseToken','Missing','Baseline','TokenRankIdx','MaxTokenRankIdx']],how='left')
+
+    # Filter to current `BaseToken` set and add plotting labels
+    if curr_var_subsets == 'nonmissing_TILBasic':
+        curr_summ_timeSHAP_values = curr_summ_timeSHAP_values.merge(curr_basetokens[['BaseToken','TILBasic','VIZ_IDX','RankIdx','COMBINE']],how='inner')
+        curr_summ_timeSHAP_values = curr_summ_timeSHAP_values.merge(token_plotting_labels,how='left')
+    else:
+        curr_summ_timeSHAP_values = curr_summ_timeSHAP_values.merge(curr_basetokens[['BaseToken','VIZ_IDX','RankIdx','COMBINE']],how='inner')
+        curr_summ_timeSHAP_values = curr_summ_timeSHAP_values.merge(token_plotting_labels.drop(columns='TILBasic'),how='left')
+
+    # Append current, filtered feature TimeSHAP values to running list
+    viz_timeSHAP_values.append(curr_summ_timeSHAP_values)
+
+# Concatenate all filtered feature TimeSHAP values
+viz_timeSHAP_values = pd.concat(viz_timeSHAP_values,ignore_index=True)
+
+# Calculate `ColorScale` for each token
+viz_timeSHAP_values['ColorScale'] = (viz_timeSHAP_values.TokenRankIdx)/(viz_timeSHAP_values.MaxTokenRankIdx)
+viz_timeSHAP_values['ColorScale'][(viz_timeSHAP_values.TokenRankIdx==0)&(viz_timeSHAP_values.MaxTokenRankIdx==0)] = 1
+viz_timeSHAP_values['ColorScale'] = viz_timeSHAP_values['ColorScale'].fillna(-1)
+
+## Clean and save selected TimeSHAP values
+# Reorder and sort columns
+viz_timeSHAP_values = viz_timeSHAP_values[['VIZ_IDX','PlotIdx','TILBasic','TUNE_IDX','DROPOUT_VARS','Label','BaseToken','Token','GUPI','WindowIdx','METRIC','TokenRankIdx','MaxTokenRankIdx','ColorScale','Missing','Baseline','BaselineFeatures','Threshold']].sort_values(by=['VIZ_IDX','PlotIdx','GUPI','WindowIdx'],ignore_index=True)
+
+# Save filtered TimeSHAP values for visualisation
+viz_timeSHAP_values.to_csv(os.path.join(shap_dir,'viz_feature_timeSHAP_values.csv'),index=False)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
