@@ -40,6 +40,24 @@ from statsmodels.tools.tools import add_constant
 # TQDM for progress tracking
 from tqdm import tqdm
 
+# Function to determine trans-threshold transitions
+def thresh_trans(TIL_df):
+
+    # Make a copy of the dataframe
+    TIL_df = TIL_df.copy()
+
+    # Determine unique thresholds of TILBasic label
+    uniq_TILBasic = np.sort(TIL_df.TILBasic.dropna().unique())
+
+    # Iterate through thresholds
+    for curr_thresh in uniq_TILBasic[:-1]:
+
+        # Mark whether rows transition across current threshold
+        TIL_df['TransTILBasic>'+str(int(curr_thresh))] = (((TIL_df.TILBasic>curr_thresh)&(TIL_df.TrueLabel<=curr_thresh))|((TIL_df.TILBasic<=curr_thresh)&(TIL_df.TrueLabel>curr_thresh))).astype(int)
+
+    # Return marked dataframe
+    return(TIL_df)
+
 # Function to prepare model output dataframe for performance metric calculation
 def prepare_df(pred_df,window_indices):
     

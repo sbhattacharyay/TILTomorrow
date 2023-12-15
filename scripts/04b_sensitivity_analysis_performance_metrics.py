@@ -6,6 +6,7 @@
 #
 ### Contents:
 # I. Initialisation
+# II. Compile calibrated testing set outputs from sensitivity analysis models if not yet completed
 # II. Calculate testing set calibration and discrimination based on provided bootstrapping resample row index
 
 ### I. Initialisation
@@ -159,7 +160,7 @@ if not (os.path.exists(os.path.join(model_dir,'sens_analysis_TomorrowTILBasic_co
 else:
     pass
 
-### II. Calculate testing set calibration and discrimination based on provided bootstrapping resample row index
+### III. Calculate testing set calibration and discrimination based on provided bootstrapping resample row index
 # Argument-induced bootstrapping functions
 def main(array_task_id):
     

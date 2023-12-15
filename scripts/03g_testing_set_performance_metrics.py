@@ -123,6 +123,9 @@ def main(array_task_id):
     # Filter points of discordance between last available TILBasic and next TILBasic
     transition_points = no_info_merged_outputs[no_info_merged_outputs.TrueLabel!=no_info_merged_outputs.TILBasic][['GUPI','WindowIdx','TrueLabel']].reset_index(drop=True)
 
+    # Add an indicator to the test outputs indicating transition status
+    calib_TILBasic_test_outputs.merge(transition_points,how='left',indicator=True)
+
     # Create a subset of the testing set output dataframe at the transition points
     trans_calib_TILBasic_test_outputs = calib_TILBasic_test_outputs.merge(transition_points,how='inner')
 

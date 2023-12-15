@@ -1,4 +1,4 @@
-#### Master Script 06: Visualise study results for manuscript ####
+#### Master Script 07: Visualise study results for manuscript ####
 #
 # Shubhayu Bhattacharyay
 # University of Cambridge
@@ -6,6 +6,7 @@
 #
 ### Contents:
 # I. Initialisation
+# Visualise the distribution and transitions of TILBasic over days of ICU stay
 # Visualise the distribution of TILBasic over days of ICU stay
 # Visualise the distribution of changes in TILBasic over days of ICU stay
 # Visualise the distribution of next-day TILBasic given previous-day TILBasic
@@ -40,97 +41,111 @@ source('functions/plotting.R')
 # Define days of ICU stay to focus on for TIL
 TIL.assessment.days <- c(1:7,10,14,21,28)
 
+# Define subset of TIL assessment days for study
+study.TIL.days <- c(1:7,10,14)
+
 # Create list of ICU stay day labels based on defined days of focus
 TIL.day.labels <- paste('Day',TIL.assessment.days)
 
 # Define colour keys based on hex values
 BluRedDiv5 <- c('#003f5c','#8386b2','#ffd4ff','#f68cba','#de425b')
+StrongBluRedDiv5 <- c('#003f5c','#6b7ab6','#ecb0ff','#f376b5','#de425b')
 BluRedDiv3 <- c('#003f5c','#ffd4ff','#de425b')
+StrongBluRedDiv3 <- c('#003f5c','#ecb0ff','#de425b')
 Palette4 <- c('#003f5c','#7a5195','#ef5675','#ffa600')
 Palette5 <- c('#003f5c','#58508d','#bc5090','#ff6361','#ffa600')
 
 ### Visualise the distribution and transitions of TILBasic over days of ICU stay
 ## Load and prepare dataframes
-# Load and clean dataframe containing ICU daily windows of study participants
-study.windows <- read.csv('../../center_tbi/CENTER-TBI/FormattedTIL/study_window_timestamps_outcomes.csv',na.strings = c("NA","NaN","", " ")) %>%
-  select(GUPI,WindowIdx,WindowTotal,TimeStampStart,TimeStampEnd) %>%
-  rename(TILTimepoint = WindowIdx) %>%
-  mutate(TimeStampStart = as.POSIXct(TimeStampStart,format = '%Y-%m-%d',tz = 'GMT'),
-         TimeStampEnd = as.POSIXct(TimeStampEnd,format = '%Y-%m-%d %H:%M:%S',tz = 'GMT'),
-         TILDate = as.Date(TimeStampStart,tz = 'GMT'))
+# Call function to get formatted TILBasic values over days of ICU stay
+study.days.TILBasic <- get.formatted.TILBasic(study.TIL.days) %>%
+  mutate(ICUDay=fct_reorder(factor(ICUDay), TILTimepoint),
+         TILBasic = factor(TILBasic,levels=c('4','3','2','1','0','Missing','Discharged','WLST or Died')))
 
-# Load and clean dataframe containing formatted TIL scores
-formatted.TIL.values <- read.csv('../../center_tbi/CENTER-TBI/FormattedTIL/formatted_TIL_values.csv',na.strings = c("NA","NaN","", " ")) %>%
-  select(GUPI,TILTimepoint,TILDate,TILBasic) %>%
-  mutate(TILDate = as.Date(as.POSIXct(TILDate,format = '%Y-%m-%d',tz = 'GMT'),tz = 'GMT'))
+# Format long dataframe into summarised form for alluvial plotting
+study.days.TILBasic.counts <- study.days.TILBasic %>%
+  pivot_wider(id_cols = GUPI, names_from = ICUDay, values_from = TILBasic) %>%
+  group_by(across(c(-GUPI))) %>%
+  summarise(Freq = n()) %>%
+  ungroup() %>%
+  mutate(SampleId = row_number()) %>%
+  pivot_longer(cols = -c(Freq,SampleId),
+               names_to = 'ICUDay',
+               values_to = 'TILBasic') %>%
+  mutate(ICUDay = factor(ICUDay,levels=paste('Day',study.TIL.days)),
+         TILBasic = factor(TILBasic,levels=c('4','3','2','1','0','Missing','Discharged','WLST or Died')),
+         TILTimepoint = as.integer(word(ICUDay,2)),
+         MapPoint = case_when(TILTimepoint<=7 ~ TILTimepoint,
+                              TILTimepoint==10 ~ 8.25,
+                              TILTimepoint==14 ~ 9.5))
 
-# Merge study window and TILBasic information and format days
-study.days.TILBasic <- study.windows %>%
-  full_join(formatted.TIL.values) %>%
-  filter(TILTimepoint %in% c(1:7,10,14)) %>%
-  mutate(ICUDay = sprintf('Day %.0f',TILTimepoint),
-         ICUDay = fct_reorder(factor(ICUDay), TILTimepoint),
-         TILBasic = case_when(TILBasic==4~'4',
-                              TILBasic==3~'3',
-                              TILBasic==2~'2',
-                              TILBasic==1~'1',
-                              TILBasic==0~'0',
-                              is.na(TILBasic)~'Missing')) %>%
-  drop_na(WindowTotal)
+## Plot and save TILBasic alluvial plot over days of ICU stay
+# Create ggplot object of TILBasic alluvial plot
+TILBasic.alluvial.plot <- ggplot(study.days.TILBasic.counts,
+                                 aes(x = MapPoint, stratum = TILBasic, alluvium = SampleId, y = Freq, fill = TILBasic)) +
+  scale_x_continuous(breaks = c(1:7,8.25,9.5),
+                     labels = study.TIL.days,
+                     expand = c(0,0)) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  geom_flow() +
+  geom_stratum(size=1/.pt,width = (5/12)) +
+  xlab('Day of ICU stay') +
+  ylab('Count (n)') + 
+  scale_fill_manual(values = c(rev(StrongBluRedDiv5),'gray60','gray40','gray20')) +
+  guides(fill=guide_legend(title="TIL(Basic)",nrow = 1,reverse = T)) +
+  geom_text(stat = "stratum",
+            aes(label = scales::percent(after_stat(prop), accuracy = 1)),
+            size=6/.pt,
+            family = 'Roboto Condensed',
+            color='white',
+            min.y = 25) +
+  theme_minimal(base_family = 'Roboto Condensed') +
+  theme(strip.text = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        panel.spacing = unit(10, 'points'),
+        axis.text.x = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
+        axis.text.y = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
+        axis.title.x = element_text(size = 7, color = "black",face = 'bold'),
+        axis.title.y = element_text(size = 7, color = "black",face = 'bold',margin = margin(0,0,0,0)),
+        legend.position = 'bottom',
+        legend.title = element_text(size = 7, color = "black", face = 'bold'),
+        legend.text=element_text(size=6),
+        legend.key.size = unit(1.3/.pt,"line")
+  )
 
-# Determine points of WLST
-
-# Load patient withdrawal-of-life-sustaining-therapies (WLST) information
-CENTER_TBI_WLST_info = pd.read_csv(os.path.join(dir_CENTER_TBI,'WLST_patients.csv'),na_values = ["NA","NaN","NaT"," ", ""])
-
-# Load patient death information
-CENTER_TBI_death_info = pd.read_csv(os.path.join(dir_CENTER_TBI,'death_patients.csv'),na_values = ["NA","NaN","NaT"," ", ""])
-
-# Merge ICU discharge and death information to WLST dataframe
-CENTER_TBI_WLST_info = CENTER_TBI_WLST_info.merge(CENTER_TBI_ICU_timestamps[['GUPI','ICUDischTimeStamp']],how='left').merge(CENTER_TBI_death_info[['GUPI','ICUDischargeStatus','DeathTimeStamp']],how='left')
-
-# Convert WLST dataframe to long form
-CENTER_TBI_WLST_info = CENTER_TBI_WLST_info.melt(id_vars=['GUPI','PatientType','DeathERWithdrawalLifeSuppForSeverityOfTBI','WithdrawalTreatmentDecision','DeadSeverityofTBI','DeadAge','DeadCoMorbidities','DeadRequestRelatives','DeadDeterminationOfBrainDeath','ICUDisWithdrawlTreatmentDecision','ICUDischargeStatus','ICUDischTimeStamp'],value_name='TimeStamp',var_name='TimeStampType')
-
-# Sort WLST dataframe by date(time) value per patient
-CENTER_TBI_WLST_info = CENTER_TBI_WLST_info.sort_values(['GUPI','TimeStamp'],ignore_index=True)
-
-# Find patients who have no non-missing timestamps
-no_non_missing_timestamp_patients = CENTER_TBI_WLST_info.groupby(['GUPI'],as_index=False)['TimeStamp'].agg('count')
-no_non_missing_timestamp_patients = no_non_missing_timestamp_patients[no_non_missing_timestamp_patients['TimeStamp']==0].reset_index(drop=True)
-
-# Drop missing values entries if the paient has at least one non-missing vlaue
-CENTER_TBI_WLST_info = CENTER_TBI_WLST_info[(~CENTER_TBI_WLST_info['TimeStamp'].isna())|(CENTER_TBI_WLST_info.GUPI.isin(no_non_missing_timestamp_patients.GUPI))].reset_index(drop=True)
-
-# Extract first timestamp (chronologically) from each patient
-CENTER_TBI_WLST_info = CENTER_TBI_WLST_info.groupby('GUPI',as_index=False).first()
-
-# Extract 'DateComponent' from timestamp values
-CENTER_TBI_WLST_info['DateComponent'] = pd.to_datetime(CENTER_TBI_WLST_info['TimeStamp'].str[:10],format = '%Y-%m-%d').dt.date
-
-# Convert timestamp to proper format
-CENTER_TBI_WLST_info['TimeStamp'] = pd.to_datetime(CENTER_TBI_WLST_info['TimeStamp'],format = '%Y-%m-%d %H:%M:%S' )
-
-
-
-
-%>%
-  count(ICUDay, Grouping, TILBasic) %>%
-  group_by(ICUDay, Grouping) %>%
-  mutate(pct=100*(n/sum(n)),
-         Label = paste0(as.character(signif(pct,2)),'%'))
-
-
-
-
-TILBasic = factor(TILBasic,levels=c('0','1','2','3','4','Missing'))
-
-
+# Create directory for current date and save TILBasic distribution over days of ICU stay
+dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
+ggsave(file.path('../plots',Sys.Date(),'TIL_Basic_alluvial.svg'),TILBasic.alluvial.plot,device=svglite,units='in',dpi=600,width=3.75,height=3.81)
 
 ### Visualise the distribution of TILBasic over days of ICU stay
 ## Load and prepare dataframes
-# Load and clean dataframe containing ICU daily windows of study participants
-study.windows <- read.csv('../../center_tbi/CENTER-TBI/FormattedTIL/study_window_timestamps_outcomes.csv',na.strings = c("NA","NaN","", " ")) %>%
+# Call function to get formatted TILBasic values over days of ICU stay
+study.days.TILBasic <- get.formatted.TILBasic(study.TIL.days) %>%
+  mutate(ICUDay=fct_reorder(factor(ICUDay), TILTimepoint),
+         TILBasic = factor(TILBasic,levels=c('4','3','2','1','0','Missing','Discharged','WLST or Died')),
+         Grouping = case_when(TILTimepoint<=6~'1',
+                              TILTimepoint<=9~'2',
+                              TILTimepoint<=13~'3',
+                              TILTimepoint<=20~'4',
+                              TILTimepoint<=27~'5'))
+
+# Add tomorrow's TILBasic values to dataframe
+trans.TILBasic <- study.days.TILBasic %>% 
+  left_join(study.days.TILBasic %>%
+  mutate(NextTILTimepoint = TILTimepoint,
+         TILTimepoint = case_when(TILTimepoint<=7 ~ TILTimepoint-1,
+                                  TILTimepoint==10 ~ 7,
+                                  TILTimepoint==14 ~ 10)) %>%
+  rename(TomorrowTILBasic = TILBasic) %>%
+  select(-c(ICUDay,Grouping))) %>%
+  filter(TILTimepoint!=14) %>%
+  mutate(Transition = paste(TILTimepoint,'→',NextTILTimepoint))
+  
+  
+  # Load and clean dataframe containing ICU daily windows of study participants
+  study.windows <- read.csv('../../center_tbi/CENTER-TBI/FormattedTIL/study_window_timestamps_outcomes.csv',na.strings = c("NA","NaN","", " ")) %>%
   select(GUPI,WindowIdx,WindowTotal,TimeStampStart,TimeStampEnd) %>%
   rename(TILTimepoint = WindowIdx) %>%
   mutate(TimeStampStart = as.POSIXct(TimeStampStart,format = '%Y-%m-%d',tz = 'GMT'),
@@ -203,61 +218,58 @@ ggsave(file.path('../plots',Sys.Date(),'TIL_Basic_distributions_over_time.svg'),
 
 ### Visualise the distribution of changes in TILBasic over days of ICU stay
 ## Load and prepare dataframes
-# Load and clean dataframe containing ICU daily windows of study participants
-study.windows <- read.csv('../../center_tbi/CENTER-TBI/FormattedTIL/study_window_timestamps_outcomes.csv',na.strings = c("NA","NaN","", " ")) %>%
-  select(GUPI,WindowIdx,WindowTotal,TimeStampStart,TimeStampEnd) %>%
-  rename(TILTimepoint = WindowIdx) %>%
-  mutate(TimeStampStart = as.POSIXct(TimeStampStart,format = '%Y-%m-%d',tz = 'GMT'),
-         TimeStampEnd = as.POSIXct(TimeStampEnd,format = '%Y-%m-%d %H:%M:%S',tz = 'GMT'),
-         TILDate = as.Date(TimeStampStart,tz = 'GMT'))
+# Call function to get formatted TILBasic values over days of ICU stay
+study.days.TILBasic <- get.formatted.TILBasic(study.TIL.days) %>%
+  mutate(ICUDay=fct_reorder(factor(ICUDay), TILTimepoint),
+         TILBasic = factor(TILBasic,levels=c('4','3','2','1','0','Missing','Discharged','WLST or Died')),
+         Grouping = case_when(TILTimepoint<=6~'1',
+                              TILTimepoint<=9~'2',
+                              TILTimepoint<=13~'3',
+                              TILTimepoint<=20~'4',
+                              TILTimepoint<=27~'5'))
 
-# Load and clean dataframe containing formatted TIL scores
-formatted.TIL.values <- read.csv('../../center_tbi/CENTER-TBI/FormattedTIL/formatted_TIL_values.csv',na.strings = c("NA","NaN","", " ")) %>%
-  select(GUPI,TILTimepoint,TILDate,TILBasic) %>%
-  mutate(TILDate = as.Date(as.POSIXct(TILDate,format = '%Y-%m-%d',tz = 'GMT'),tz = 'GMT')) %>%
-  group_by(GUPI) %>%
-  mutate(dTILTimepoint = c(NA,diff(TILTimepoint)),
-         dTILBasic = c(NA,diff(TILBasic)))
-
-# Merge study window and TILBasic information and format days
-study.days.dTILBasic <- study.windows %>%
-  full_join(formatted.TIL.values) %>%
-  filter(TILTimepoint %in% TIL.assessment.days,
-         TILTimepoint>1,
-         !is.na(dTILBasic)) %>%
-  mutate(ICUDay = sprintf('Day %.0f',TILTimepoint),
-         Grouping = case_when(TILTimepoint<=7~'1',
-                              TILTimepoint<=10~'2',
-                              TILTimepoint<=14~'3',
-                              TILTimepoint<=21~'4',
-                              TILTimepoint<=28~'5'),
-         dTILBasic = case_when(dTILBasic<0~'Decrease',
-                               dTILBasic==0~'No change',
-                               dTILBasic>0~'Increase'),
-         dTILBasic = factor(dTILBasic,levels=c('Decrease','No change','Increase'))) %>%
-  count(ICUDay, Grouping, dTILBasic) %>%
-  group_by(ICUDay, Grouping) %>%
+# Add tomorrow's TILBasic values to dataframe
+trans.TILBasic <- study.days.TILBasic %>% 
+  left_join(study.days.TILBasic %>%
+              mutate(NextTILTimepoint = TILTimepoint,
+                     TILTimepoint = case_when(TILTimepoint<=7 ~ TILTimepoint-1,
+                                              TILTimepoint==10 ~ 7,
+                                              TILTimepoint==14 ~ 10)) %>%
+              rename(TomorrowTILBasic = TILBasic) %>%
+              select(-c(ICUDay,Grouping))) %>%
+  filter(TILTimepoint!=14,
+         !(TILBasic %in% c('WLST or Died','Discharged')),
+         !(TomorrowTILBasic %in% c('WLST or Died','Discharged'))) %>%
+  mutate(TimepointTransition = paste(TILTimepoint,'→',NextTILTimepoint),
+         TILBasicTransition = case_when(TILBasic == 'Missing' ~ 'Missing',
+                                        TomorrowTILBasic == 'Missing' ~ 'Missing',
+                                        TILBasic == TomorrowTILBasic ~ 'No change',
+                                        as.character(TomorrowTILBasic)>as.character(TILBasic)~'Increase',
+                                        as.character(TomorrowTILBasic)<as.character(TILBasic)~'Decrease'),
+         TILBasicTransition = factor(TILBasicTransition,levels=c('Missing','Decrease','No change','Increase'))) %>%
+  count(TimepointTransition, Grouping, TILBasicTransition) %>%
+  group_by(TimepointTransition, Grouping) %>%
   mutate(pct=100*(n/sum(n)),
-         Label = paste0(as.character(signif(pct,2)),'%\n(',n,')')) %>%
-  rbind(data.frame(ICUDay = 'Day 1',
-                   Grouping = '1')) %>%
-  mutate(ICUDay=factor(ICUDay,levels=TIL.day.labels))
+         TransTotal = sum(n),
+         Label = sprintf('%.0f%%',pct))
 
 ## Plot and save change in TILBasic distribution over days of ICU stay
 # Create ggplot object of daily changes in TILBasic distribution
-dTILBasic.distributions <- study.days.dTILBasic %>%
-  ggplot(aes(fill=fct_rev(dTILBasic), y=pct, x=ICUDay)) + 
-  geom_bar(position="stack", stat="identity") +
+dTILBasic.distributions <- trans.TILBasic %>%
+  ggplot(aes(fill=fct_rev(TILBasicTransition), y=n, x=TimepointTransition)) + 
+  geom_bar(position="stack", stat="identity",color='black',size=1/.pt) +
   geom_text(aes(label = Label),
             position = position_stack(vjust = .5),
             size=6/.pt,
-            family='Roboto Condensed') +
-  scale_fill_manual(values=rev(c(BluRedDiv3))) +
+            family = 'Roboto Condensed',
+            color='white') +
+  scale_fill_manual(values=rev(c('gray60',BluRedDiv3))) +
   guides(fill=guide_legend(title="Change in TIL(Basic)",nrow = 1,reverse = T)) +
   scale_y_continuous(expand = expansion(mult = c(.00, .00)))+
+  scale_x_discrete(expand = expansion(mult = c(.00, .00)))+
   theme_minimal(base_family = 'Roboto Condensed') +
-  ylab('Percentage (%)') +
-  xlab('Day of ICU stay') +
+  ylab('Count (n)') +
+  xlab('Day-to-day steps in ICU stay') +
   facet_grid(cols = vars(Grouping), scales = 'free_x', switch = 'x', space = 'free_x') +
   theme(
     strip.text = element_blank(),

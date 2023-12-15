@@ -196,45 +196,172 @@ thresh.level.calib.slope.plot <- function(plot.df,title){
 
 # Function to prepare formatted TIL dataframe for plotting
 prepare.df <- function(TIL.df,window.indices){
-    
+  
   # Determine non-consecutive window indices
-  non_consec_wis = [window.indices[i] for i in (np.where(np.diff(window.indices) != 1)[0]+1)]
+  non.consec.wis <- window.indices[c(FALSE,diff(window.indices) != 1)]
   
   # Iterate through non-consecutive windows
-  for curr_idx in non_consec_wis:
+  for (curr.idx in non.consec.wis){
     
     # Identify GUPIs with missing true label at current non-consecutive window
-    curr_missing_GUPIs = pred_df[(pred_df.WindowIdx==curr_idx)&(pred_df.TrueLabel.isna())].GUPI.unique()
-  
-  # Identify instances in which the consecutive window index has a non-missing true label for the current missing GUPI set
-  replacements = pred_df[pred_df.GUPI.isin(curr_missing_GUPIs) & (pred_df.WindowIdx.isin([curr_idx-1,curr_idx+1])) & (pred_df.TrueLabel.notna())].reset_index(drop=True)
-  
-  # If there are viable consecutive window indices, replace missing values with them
-  if replacements.shape[0] != 0:
+    curr.missing.GUPIs <- TIL.df %>%
+      filter(TILTimepoint == curr.idx,
+             is.na(TILBasic)) %>%
+      .$GUPI %>%
+      unique()
     
-    # Use the highest window index if others are available
-    replacements = replacements.loc[replacements.groupby(['GUPI','TUNE_IDX','REPEAT','FOLD','SET']).WindowIdx.idxmax()].reset_index(drop=True)
-  
-  # Identify which rows shall be replaced 
-  remove_rows = replacements[['GUPI','TUNE_IDX','REPEAT','FOLD','SET']]
-  remove_rows['WindowIdx'] = curr_idx
-  
-  # Add indicator designating rows for replacement
-  pred_df = pred_df.merge(remove_rows,how='left',indicator=True)
-  
-  # Rectify window index in replacement dataframe
-  replacements['WindowIdx'] = curr_idx
-  
-  # Replace rows with missing true label with viable, consecutive-window replacement
-  pred_df = pd.concat([pred_df[pred_df._merge!='both'].drop(columns='_merge'),replacements],ignore_index=True).sort_values(by=['REPEAT','FOLD','TUNE_IDX','GUPI']).reset_index(drop=True)
-  
-  else:
-    pass
-  
+    # Identify instances in which the consecutive window index has a non-missing true label for the current missing GUPI set
+    replacements <- TIL.df %>%
+      filter(GUPI %in% curr.missing.GUPIs,
+             TILTimepoint %in% c(curr.idx-1,curr.idx+1),
+             !is.na(TILBasic))
+    
+    # If there are viable consecutive window indices, replace missing values with them
+    if (dim(replacements)[1] != 0){
+      
+      # Use the highest window index if others are available
+      replacements <- replacements %>%
+        group_by(GUPI) %>%
+        slice_max(TILTimepoint) %>%
+        mutate(TILTimepoint = curr.idx)
+      
+      # Replace rows with missing true label with viable, consecutive-window replacement
+      TIL.df <- TIL.df %>%
+        anti_join(replacements %>%
+                    select(GUPI,TILTimepoint,WindowTotal)) %>%
+        rbind(replacements) %>%
+        arrange(GUPI,TILTimepoint)
+    }
+  }
   # Filter dataframe to desired window indices
-  pred_df = pred_df[pred_df.WindowIdx.isin(window.indices)].reset_index(drop=True)
+  TIL.df <- TIL.df %>%
+    filter(TILTimepoint %in% window.indices)
   
   # Return filtered dataframe
-  return(pred_df)
+  return(TIL.df)
+}
 
+# Store study window and TILBasic extraction script into function
+get.formatted.TILBasic <- function(focus.timepoints){
+  # Load and clean dataframe containing ICU daily windows of study participants
+  study.windows <- read.csv('../../center_tbi/CENTER-TBI/FormattedTIL/study_window_timestamps_outcomes.csv',na.strings = c("NA","NaN","", " ")) %>%
+    select(GUPI,WindowIdx,WindowTotal,TimeStampStart,TimeStampEnd) %>%
+    rename(TILTimepoint = WindowIdx) %>%
+    mutate(TimeStampStart = as.POSIXct(TimeStampStart,format = '%Y-%m-%d',tz = 'GMT'),
+           TimeStampEnd = as.POSIXct(TimeStampEnd,format = '%Y-%m-%d %H:%M:%S',tz = 'GMT'),
+           TILDate = as.Date(TimeStampStart,tz = 'GMT'))
+  
+  # Load and clean dataframe containing formatted TIL scores
+  formatted.TIL.values <- read.csv('../../center_tbi/CENTER-TBI/FormattedTIL/formatted_TIL_values.csv',na.strings = c("NA","NaN","", " ")) %>%
+    select(GUPI,TILTimepoint,TILDate,TILBasic) %>%
+    mutate(TILDate = as.Date(as.POSIXct(TILDate,format = '%Y-%m-%d',tz = 'GMT'),tz = 'GMT'))
+  
+  # Merge study window and TILBasic information and format days
+  study.days.TILBasic <- study.windows %>%
+    full_join(formatted.TIL.values) %>%
+    prepare.df(focus.timepoints) %>%
+    mutate(ICUDay = sprintf('Day %.0f',TILTimepoint),
+           ICUDay = fct_reorder(factor(ICUDay), TILTimepoint),
+           TILBasic = case_when(TILBasic==4~'4',
+                                TILBasic==3~'3',
+                                TILBasic==2~'2',
+                                TILBasic==1~'1',
+                                TILBasic==0~'0',
+                                is.na(TILBasic)~'Missing'))
+  
+  # Load patient ICU admission/discharge timestamps
+  CENTER.TBI.ICU.discharge.info <- read.csv('../../center_tbi/CENTER-TBI/adm_disch_timestamps.csv',na.strings = c("NA","NaN","", " ")) %>%
+    filter(GUPI %in% study.days.TILBasic$GUPI) %>%
+    select(GUPI,ICUDischTimeStamp) %>%
+    mutate(ICUDischTimeStamp = as.POSIXct(substr(ICUDischTimeStamp,1,10),format = '%Y-%m-%d',tz = 'GMT')) %>%
+    arrange(GUPI,ICUDischTimeStamp)
+  
+  # Load patient withdrawal-of-life-sustaining-therapies (WLST) information
+  CENTER.TBI.WLST.info <- read.csv('../../center_tbi/CENTER-TBI/WLST_patients.csv',na.strings = c("NA","NaN","", " ")) %>%
+    filter(GUPI %in% study.days.TILBasic$GUPI) %>%
+    select(GUPI,ends_with('TimeStamp')) %>%
+    pivot_longer(cols=-c(GUPI),names_to = 'TypeOfTimeStamp',values_to = 'WLSTTimeStamp') %>%
+    mutate(WLSTTimeStamp = as.POSIXct(substr(WLSTTimeStamp,1,10),format = '%Y-%m-%d',tz = 'GMT')) %>%
+    filter(TypeOfTimeStamp != 'ICUDischTimeStamp',
+           !is.na(WLSTTimeStamp)) %>%
+    group_by(GUPI) %>%
+    slice_min(WLSTTimeStamp,with_ties=F,n=1) %>%
+    arrange(GUPI,WLSTTimeStamp)
+  
+  # Load patient death information
+  CENTER.TBI.death.info <- read.csv('../../center_tbi/CENTER-TBI/death_patients.csv',na.strings = c("NA","NaN","", " ")) %>%
+    filter(GUPI %in% study.days.TILBasic$GUPI) %>%
+    select(GUPI,ICUDischargeStatus,ends_with('TimeStamp')) %>%
+    pivot_longer(cols=-c(GUPI,ICUDischargeStatus),names_to = 'TypeOfTimeStamp',values_to = 'DeathTimeStamp') %>%
+    mutate(DeathTimeStamp = as.POSIXct(substr(DeathTimeStamp,1,10),format = '%Y-%m-%d',tz = 'GMT')) %>%
+    filter(TypeOfTimeStamp != 'ICUDischTimeStamp',
+           !is.na(DeathTimeStamp)) %>%
+    group_by(GUPI) %>%
+    slice_min(DeathTimeStamp,with_ties=F,n=1) %>%
+    arrange(GUPI,DeathTimeStamp)
+  
+  # Merge discharge, WLST, and death timestamps into single dataframe
+  CENTER.TBI.ICU.timestamps <- CENTER.TBI.ICU.discharge.info %>%
+    left_join(CENTER.TBI.WLST.info %>% select(GUPI,WLSTTimeStamp)) %>%
+    left_join(CENTER.TBI.death.info %>% select(GUPI,DeathTimeStamp)) %>%
+    left_join(study.days.TILBasic %>%
+                mutate(BaseDate = TimeStampStart - as.difftime(TILTimepoint, unit="days")) %>%
+                select(GUPI,BaseDate) %>%
+                drop_na(BaseDate) %>%
+                unique()) %>%
+    filter(!(is.na(WLSTTimeStamp) & is.na(DeathTimeStamp))) %>%
+    mutate(WLSTTimepoint = as.numeric(WLSTTimeStamp - BaseDate,units="days"),
+           DeathTimepoint = as.numeric(DeathTimeStamp - BaseDate,units="days"),
+           WLSTOrDeathTimepoint = case_when(WLSTTimepoint>DeathTimepoint ~ DeathTimepoint,
+                                            WLSTTimepoint<DeathTimepoint ~ WLSTTimepoint,
+                                            T ~ DeathTimepoint)) %>%
+    filter(WLSTOrDeathTimepoint <= max(focus.timepoints))
+  
+  # Create an empty vector to store Death/WLST rows
+  death.WLST.list <- vector(mode = "list")
+  i <- 0
+  
+  # Iterate through rows of death or WLST to create dataframe rows
+  for (curr.GUPI in unique(CENTER.TBI.ICU.timestamps$GUPI)){
+    
+    # Add one to running row index
+    i <- i + 1
+    
+    # Filter current death/WLST information
+    curr.GUPI.timestamps <- CENTER.TBI.ICU.timestamps %>%
+      filter(GUPI == curr.GUPI)
+    
+    # Create rows corresponding to death/WLST for study window dataframe
+    curr.GUPI.rows <- data.frame(GUPI = curr.GUPI,
+                                 TILTimepoint = seq(min(curr.GUPI.timestamps$WLSTOrDeathTimepoint),max(focus.timepoints)),
+                                 TILBasicMarker = 'WLST or Died') %>%
+      filter(TILTimepoint %in% focus.timepoints) %>%
+      mutate(ICUDay = sprintf('Day %.0f',TILTimepoint))
+    
+    # Append current rows corresponding to death/WLST to running list
+    death.WLST.list[[i]] <- curr.GUPI.rows
+  }
+  
+  # Concatenate list of death/WLST rows into single dataframe
+  study.days.and.WLST.death.TILBasic <- study.days.TILBasic %>%
+    full_join(do.call(rbind,death.WLST.list)) %>%
+    mutate(TILBasic = case_when(!is.na(TILBasic) ~ TILBasic,
+                                T ~ TILBasicMarker)) %>%
+    select(-TILBasicMarker) %>%
+    arrange(GUPI,TILTimepoint)
+  
+  # Create grid of days which are unaccounted for to mark as discharged
+  discharge.days <- expand_grid(GUPI=unique(study.days.and.WLST.death.TILBasic$GUPI),TILTimepoint=focus.timepoints) %>%
+    anti_join(study.days.and.WLST.death.TILBasic) %>%
+    mutate(TILBasic = 'Discharged',
+           ICUDay = sprintf('Day %.0f',TILTimepoint))
+  
+  # Join the discharged timepoints to study window TILBasic dataframe
+  study.days.WLST.death.and.discharge.TILBasic <- study.days.and.WLST.death.TILBasic %>%
+    full_join(discharge.days) %>%
+    arrange(GUPI,TILTimepoint) %>%
+    select(GUPI,ICUDay,TILTimepoint,TILBasic)
+  
+  # Return final formatted study window dataframe
+  return(study.days.WLST.death.and.discharge.TILBasic)
 }
