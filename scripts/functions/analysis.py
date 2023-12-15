@@ -308,3 +308,109 @@ def calc_test_thresh_calib_curves(pred_df,window_indices,progress_bar = True,pro
                                                   'TRUEPROB':TrueProb}))
     calib_curves = pd.concat(calib_curves,ignore_index = True).reset_index(drop=True)    
     return calib_curves
+
+# Function to calculate transition probabilities on given set outputs
+def get_trans_probs(output_df):
+
+    # Add column for transition label
+    output_df['TransLabel'] = np.nan
+    output_df.TransLabel[output_df.Decrease==1] = 0
+    output_df.TransLabel[output_df.Stasis==1] = 1
+    output_df.TransLabel[output_df.Increase==1] = 2
+
+    # Drop rows with a missing transition label
+    output_df = output_df.dropna(subset=['TILBasic','TransLabel'])
+    output_df.TILBasic = output_df.TILBasic.astype(int)
+    output_df.TransLabel = output_df.TransLabel.astype(int)
+
+    # Extract names of probability columns
+    prob_cols = [col for col in output_df if col.startswith('Pr(TILBasic=')]
+
+    # Calculate probability of decrease, stasis, and increase based on current TILBasic
+    cum_prob_sums = 1-output_df[prob_cols].cumsum(axis=1)
+    rev_cum_prob_sums = (1-output_df[prob_cols].loc[:,::-1].cumsum(axis=1)).loc[:,::-1]
+    cum_prob_sums.iloc[:,-1] = 0
+    rev_cum_prob_sums.iloc[:,0] = 0
+    output_df['Pr(Decrease)'] = rev_cum_prob_sums.values[np.arange(rev_cum_prob_sums.shape[0]),output_df['TILBasic'].values] 
+    output_df['Pr(Stasis)'] = output_df[prob_cols].values[np.arange(output_df.shape[0]),output_df['TILBasic'].values] 
+    output_df['Pr(Increase)'] = cum_prob_sums.values[np.arange(cum_prob_sums.shape[0]),output_df['TILBasic'].values] 
+
+    # Add a `TransExpectedValue` column for ORC and Somers calculation
+    output_df['TransExpectedValue'] = (output_df['Pr(Stasis)'])+(2*output_df['Pr(Increase)'])
+
+    # Return dataframe
+    return(output_df)
+
+# Function to calculate transition ORC on given set outputs
+def calc_trans_ORC(pred_df,window_indices,progress_bar = True,progress_bar_desc = ''):
+    orcs = []
+    if progress_bar:
+        iterator = tqdm(pred_df.TUNE_IDX.unique(),desc=progress_bar_desc)
+    else:
+        iterator = pred_df.TUNE_IDX.unique()
+    for curr_tune_idx in iterator:
+        for curr_wi in window_indices:
+            filt_is_preds = pred_df[(pred_df.WindowIdx == curr_wi)&(pred_df.TUNE_IDX == curr_tune_idx)].reset_index(drop=True)
+            aucs = []
+            for ix, (a, b) in enumerate(itertools.combinations(np.sort(filt_is_preds.TransLabel.dropna().unique()), 2)):
+                filt_prob_matrix = filt_is_preds[filt_is_preds.TransLabel.isin([a,b])].reset_index(drop=True)
+                filt_prob_matrix['ConditLabel'] = (filt_prob_matrix.TransLabel == b).astype(int)
+                aucs.append(roc_auc_score(filt_prob_matrix['ConditLabel'],filt_prob_matrix['TransExpectedValue']))
+            orcs.append(pd.DataFrame({'TUNE_IDX':curr_tune_idx,
+                                      'WINDOW_IDX':curr_wi,
+                                      'METRIC':'ORC',
+                                      'VALUE':np.mean(aucs)},index=[0]))
+    return pd.concat(orcs,ignore_index=True)
+
+# Function to calculate transition Somers_D on given set outputs
+def calc_trans_Somers_D(pred_df,window_indices,progress_bar = True,progress_bar_desc = ''):
+    somers_d = []
+    if progress_bar:
+        iterator = tqdm(pred_df.TUNE_IDX.unique(),desc=progress_bar_desc)
+    else:
+        iterator = pred_df.TUNE_IDX.unique()
+    for curr_tune_idx in iterator:
+        for curr_wi in window_indices:
+            filt_is_preds = pred_df[(pred_df.WindowIdx == curr_wi)&(pred_df.TUNE_IDX == curr_tune_idx)].reset_index(drop=True)
+            aucs = []
+            prevalence = []
+            for ix, (a, b) in enumerate(itertools.combinations(np.sort(filt_is_preds.TransLabel.dropna().unique()), 2)):
+                filt_prob_matrix = filt_is_preds[filt_is_preds.TransLabel.isin([a,b])].reset_index(drop=True)
+                filt_prob_matrix['ConditLabel'] = (filt_prob_matrix.TransLabel == b).astype(int)
+                prevalence.append((filt_prob_matrix.TransLabel == a).sum()*(filt_prob_matrix.TransLabel == b).sum())
+                aucs.append(roc_auc_score(filt_prob_matrix['ConditLabel'],filt_prob_matrix['TransExpectedValue']))
+            somers_d.append(pd.DataFrame({'TUNE_IDX':curr_tune_idx,
+                                          'WINDOW_IDX':curr_wi,
+                                          'METRIC':'Somers D',
+                                          'VALUE':2*(np.sum(np.multiply(aucs,prevalence))/np.sum(prevalence))-1},index=[0]))
+    return pd.concat(somers_d,ignore_index=True)
+
+
+# Function to calculate transition threshold-level AUC on given set outputs
+def calc_trans_thresh_AUC(pred_df,window_indices,progress_bar = True,progress_bar_desc = ''):
+    
+    prob_cols = ['Pr(Decrease)','Pr(Increase)']
+    thresh_labels = ['Decrease','Increase']
+    thresh_AUCs = []
+
+    if progress_bar:
+        iterator = tqdm(pred_df.TUNE_IDX.unique(),desc=progress_bar_desc)
+    else:
+        iterator = pred_df.TUNE_IDX.unique()
+    
+    for curr_tune_idx in iterator:
+        for curr_wi in window_indices:
+            filt_is_preds = pred_df[(pred_df.WindowIdx == curr_wi)&(pred_df.TUNE_IDX == curr_tune_idx)&(pred_df.TransLabel.notna())].reset_index(drop=True)
+            for thresh in thresh_labels:
+                thresh_prob_name = 'Pr('+thresh+')'
+                try:
+                    curr_AUC = roc_auc_score(filt_is_preds[thresh],filt_is_preds[thresh_prob_name])
+                except:
+                    curr_AUC = np.nan
+                thresh_AUCs.append(pd.DataFrame({'TUNE_IDX':curr_tune_idx,
+                                                 'WINDOW_IDX':curr_wi,
+                                                 'THRESHOLD':thresh,
+                                                 'METRIC':'AUC',
+                                                 'VALUE':curr_AUC},index=[0]))
+    thresh_AUCs = pd.concat(thresh_AUCs,ignore_index = True).reset_index(drop=True)
+    return thresh_AUCs

@@ -17,6 +17,7 @@
 # Visualise threshold-level AUC in prediction of next-day TILBasic
 # Visualise threshold-level calibration slope in prediction of next-day TILBasic
 # Visualise threshold-level calibration curves in prediction of next-day TILBasic
+# Visualise threshold-level AUC in prediction of next-day TILBasic for post-hoc analysis
 
 ### I. Initialisation
 # Import necessary libraries
@@ -134,18 +135,18 @@ study.days.TILBasic <- get.formatted.TILBasic(study.TIL.days) %>%
 # Add tomorrow's TILBasic values to dataframe
 trans.TILBasic <- study.days.TILBasic %>% 
   left_join(study.days.TILBasic %>%
-  mutate(NextTILTimepoint = TILTimepoint,
-         TILTimepoint = case_when(TILTimepoint<=7 ~ TILTimepoint-1,
-                                  TILTimepoint==10 ~ 7,
-                                  TILTimepoint==14 ~ 10)) %>%
-  rename(TomorrowTILBasic = TILBasic) %>%
-  select(-c(ICUDay,Grouping))) %>%
+              mutate(NextTILTimepoint = TILTimepoint,
+                     TILTimepoint = case_when(TILTimepoint<=7 ~ TILTimepoint-1,
+                                              TILTimepoint==10 ~ 7,
+                                              TILTimepoint==14 ~ 10)) %>%
+              rename(TomorrowTILBasic = TILBasic) %>%
+              select(-c(ICUDay,Grouping))) %>%
   filter(TILTimepoint!=14) %>%
   mutate(Transition = paste(TILTimepoint,'→',NextTILTimepoint))
-  
-  
-  # Load and clean dataframe containing ICU daily windows of study participants
-  study.windows <- read.csv('../../center_tbi/CENTER-TBI/FormattedTIL/study_window_timestamps_outcomes.csv',na.strings = c("NA","NaN","", " ")) %>%
+
+
+# Load and clean dataframe containing ICU daily windows of study participants
+study.windows <- read.csv('../../center_tbi/CENTER-TBI/FormattedTIL/study_window_timestamps_outcomes.csv',na.strings = c("NA","NaN","", " ")) %>%
   select(GUPI,WindowIdx,WindowTotal,TimeStampStart,TimeStampEnd) %>%
   rename(TILTimepoint = WindowIdx) %>%
   mutate(TimeStampStart = as.POSIXct(TimeStampStart,format = '%Y-%m-%d',tz = 'GMT'),
@@ -965,12 +966,89 @@ all.point.TILBasic.calib.curve <- full.model.calib.curve.CIs %>%
 dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
 ggsave(file.path('../plots',Sys.Date(),'all_point_thresh_calib_curves.svg'),all.point.TILBasic.calib.curve,device= svglite,units='in',dpi=600,width=3.75,height = 3)
 
+### Visualise threshold-level AUC in prediction of next-day TILBasic for post-hoc analysis
+# Playground mode
+post.hoc.metrics.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/post_hoc_metrics_CI.csv',na.strings = c("NA","NaN","", " "))
 
+## First, Somers for general stasis, decrease, and increase
+general.post.hoc.Somers.CIs <- post.hoc.metrics.CIs %>%
+  filter(METRIC=='Somers D',
+         TRANS_THRESHOLD == 'None',
+         DROPOUT_VARS %in% c('none','last_TIL_only','clinician_impressions_and_treatments','dynamic')) %>%
+  mutate(ICUDay = sprintf('Day %.0f',WINDOW_IDX),
+         Grouping = case_when(WINDOW_IDX<=6~'1',
+                              WINDOW_IDX<=9~'2',
+                              WINDOW_IDX<=13~'3'),
+         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX)) %>%
+  mutate(DROPOUT_VARS = factor(DROPOUT_VARS,levels=c('none','last_TIL_only','clinician_impressions_and_treatments','dynamic'))) %>%
+  mutate(across(lo:hi, ~ (abs(.x)+.x)/2))
+general.post.hoc.Somers.CIs <- ggplot() +
+  geom_ribbon(data=general.post.hoc.Somers.CIs %>% filter(Grouping==1),
+              mapping=aes(x=ICUDay, ymin=100*lo, ymax=100*hi, fill=DROPOUT_VARS, group = DROPOUT_VARS),
+              alpha=.2) +
+  geom_line(data=general.post.hoc.Somers.CIs %>% filter(Grouping==1),
+            mapping=aes(x=ICUDay, y=100*median, color=DROPOUT_VARS, group = DROPOUT_VARS),
+            lwd=1.3/.pt) +
+  geom_errorbar(data=general.post.hoc.Somers.CIs %>% filter(Grouping!=1),
+                mapping=aes(x=ICUDay, ymin=100*lo, ymax=100*hi, color=DROPOUT_VARS),
+                position = position_dodge(width = .75),
+                width=.35) +
+  geom_point(data=general.post.hoc.Somers.CIs %>% filter(Grouping!=1),
+             mapping=aes(x=ICUDay, y=100*median, color=DROPOUT_VARS),
+             position = position_dodge(width = .75),
+             size=1) +
+  coord_cartesian(ylim = c(0,100)) +
+  xlab("Day of ICU stay")+
+  ylab("Explanation of ordinal variance in next-day TILBasic (%)")+
+  scale_y_continuous(breaks = seq(0,100,10)) +
+  scale_x_discrete(breaks = paste('Day',c(1:6,9,13)),limits = paste('Day',c(1:6,9,13))) +
+  scale_fill_manual(values = Palette4)+
+  scale_color_manual(values = Palette4)+
+  guides(fill=guide_legend(title="Model variable set"),
+         color=guide_legend(title="Model variable set")) +
+  theme_minimal(base_family = 'Roboto Condensed') +
+  facet_grid(cols = vars(TRANSITION_TYPE), scales = 'free_x', switch = 'x', space = 'free_x') +
+  theme(legend.position = 'bottom')
 
-
-
-
-
+trans.threshold.AUC <- post.hoc.metrics.CIs %>%
+  filter(METRIC=='AUC',
+         TRANSITION_TYPE == 'All_transitions',
+         DROPOUT_VARS %in% c('none','last_TIL_only','clinician_impressions_and_treatments','dynamic'),
+         str_sub(TRANS_THRESHOLD,6,15) == THRESHOLD) %>%
+  mutate(ICUDay = sprintf('Day %.0f',WINDOW_IDX),
+         Grouping = case_when(WINDOW_IDX<=6~'1',
+                              WINDOW_IDX<=9~'2',
+                              WINDOW_IDX<=13~'3'),
+         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX)) %>%
+  mutate(DROPOUT_VARS = factor(DROPOUT_VARS,levels=c('none','last_TIL_only','clinician_impressions_and_treatments','dynamic'))) %>%
+  mutate(across(lo:hi, ~ (abs(.x)+.x)/2))
+trans.threshold.AUC <- ggplot() +
+  geom_ribbon(data=trans.threshold.AUC %>% filter(Grouping==1),
+              mapping=aes(x=ICUDay, ymin=100*lo, ymax=100*hi, fill=DROPOUT_VARS, group = DROPOUT_VARS),
+              alpha=.2) +
+  geom_line(data=trans.threshold.AUC %>% filter(Grouping==1),
+            mapping=aes(x=ICUDay, y=100*median, color=DROPOUT_VARS, group = DROPOUT_VARS),
+            lwd=1.3/.pt) +
+  geom_errorbar(data=trans.threshold.AUC %>% filter(Grouping!=1),
+                mapping=aes(x=ICUDay, ymin=100*lo, ymax=100*hi, color=DROPOUT_VARS),
+                position = position_dodge(width = .75),
+                width=.35) +
+  geom_point(data=trans.threshold.AUC %>% filter(Grouping!=1),
+             mapping=aes(x=ICUDay, y=100*median, color=DROPOUT_VARS),
+             position = position_dodge(width = .75),
+             size=1) +
+  coord_cartesian(ylim = c(0,100)) +
+  xlab("Day of ICU stay")+
+  ylab("AUC")+
+  scale_y_continuous(breaks = seq(0,100,10)) +
+  scale_x_discrete(breaks = paste('Day',c(1:6,9,13)),limits = paste('Day',c(1:6,9,13))) +
+  scale_fill_manual(values = Palette4)+
+  scale_color_manual(values = Palette4)+
+  guides(fill=guide_legend(title="Model variable set"),
+         color=guide_legend(title="Model variable set")) +
+  theme_minimal(base_family = 'Roboto Condensed') +
+  facet_wrap(~THRESHOLD,nrow = 1) +
+  theme(legend.position = 'bottom')
 
 
 
