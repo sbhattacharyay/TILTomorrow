@@ -70,8 +70,8 @@ model_dir = os.path.join('/home/sb2406/rds/hpc-work','TILTomorrow_model_outputs'
 # Define model performance directory based on version code
 model_perf_dir = os.path.join('/home/sb2406/rds/hpc-work','TILTomorrow_model_performance',VERSION)
 
-# Define subdirectory to store testing set bootstrapping results for sensitivity analysis
-sens_bs_dir = os.path.join(model_perf_dir,'sensitivity_bootstrapping')
+# Define subdirectory to store testing set bootstrapping results for post-hoc analysis
+post_hoc_bs_dir = os.path.join(model_perf_dir,'post_hoc_bootstrapping')
 
 ## Load fundamental information for model training
 # Load cross-validation information to get GUPI and outcomes
@@ -85,13 +85,12 @@ tuning_grid = pd.read_csv(os.path.join(model_dir,'post_dropout_tuning_grid.csv')
 ## Find and characterise all testing set performance files
 # Search for all performance files
 perf_files = []
-for path in Path(sens_bs_dir).rglob('post_hoc_test_calibrated_*'):
+for path in Path(post_hoc_bs_dir).rglob('post_hoc_test_calibrated_*'):
     perf_files.append(str(path.resolve()))
 
 # Characterise the performance files found
 perf_file_info_df = pd.DataFrame({'FILE':perf_files,
-                                  'VERSION':[re.search('_performance/(.*)/sensitivity_', curr_file).group(1) for curr_file in perf_files],
-                                  'OUTCOME_LABEL':[re.search('sens_analysis_(.*)_test_calibrated_', curr_file).group(1) for curr_file in perf_files],
+                                  'VERSION':[re.search('_performance/(.*)/post_hoc_bootstrapping', curr_file).group(1) for curr_file in perf_files],
                                   'METRIC':[re.search('test_calibrated_(.*)_rs_', curr_file).group(1) for curr_file in perf_files],
                                   'RESAMPLE_IDX':[int(re.search('_rs_(.*).pkl', curr_file).group(1)) for curr_file in perf_files],
                                  }).sort_values(by=['METRIC','RESAMPLE_IDX']).reset_index(drop=True)
@@ -102,11 +101,32 @@ calibration_curves_file_info_df = perf_file_info_df[(perf_file_info_df.METRIC ==
 
 ## Load and compile testing set performance dataframes into single files
 # Load testing set discrimination and calibration performance dataframes
-compiled_test_bootstrapping_metrics = pd.concat([pd.read_pickle(f) for f in tqdm(metric_file_info_df.FILE,'Load and compile testing set scalar metrics for sensitivity analysis')],ignore_index=True)
-compiled_test_calibration_curves = pd.concat([pd.read_pickle(f) for f in tqdm(calibration_curves_file_info_df.FILE,'Load and compile testing set threshold-level calibration curves for sensitivity analysis')],ignore_index=True)
+compiled_test_bootstrapping_metrics = pd.concat([pd.read_pickle(f) for f in tqdm(metric_file_info_df.FILE,'Load and compile testing set scalar metrics for post-hoc analysis')],ignore_index=True)
+compiled_test_calibration_curves = pd.concat([pd.read_pickle(f) for f in tqdm(calibration_curves_file_info_df.FILE,'Load and compile testing set threshold-level calibration curves for post-hoc analysis')],ignore_index=True)
 
 # Save compiled testing set performance metrics
-compiled_test_bootstrapping_metrics.to_pickle(os.path.join(model_perf_dir,'sens_analysis_bootstrapping_calibrated_metrics.pkl'))
+compiled_test_bootstrapping_metrics.to_pickle(os.path.join(model_perf_dir,'post_hoc_bootstrapping_calibrated_metrics.pkl'))
 
 # Save compiled testing set calibration curves
-compiled_test_calibration_curves.to_pickle(os.path.join(model_perf_dir,'sens_analysis_bootstrapping_calibration_curves.pkl'))
+compiled_test_calibration_curves.to_pickle(os.path.join(model_perf_dir,'post_hoc_bootstrapping_calibration_curves.pkl'))
+
+### III. Calculate 95% confidence intervals on test set performance metrics
+## Load and prepare compiled testing set bootstrapping metrics
+# Compiled calibrated testing set performance metrics 
+compiled_test_bootstrapping_metrics = pd.read_pickle(os.path.join(model_perf_dir,'post_hoc_bootstrapping_calibrated_metrics.pkl'))
+
+# Compiled calibrated testing set calibration curves
+compiled_test_calibration_curves = pd.read_pickle(os.path.join(model_perf_dir,'post_hoc_bootstrapping_calibration_curves.pkl'))
+
+## Calculate 95% confidence intervals
+# Calibrated testing set performance metrics 
+test_CI_metrics = compiled_test_bootstrapping_metrics.dropna().groupby(['THRESHOLD_LEVEL','TRANS_THRESHOLD','TRANSITION_TYPE','DROPOUT_VARS','TUNE_IDX','METRIC','WINDOW_IDX','THRESHOLD'],as_index=False)['VALUE'].aggregate({'lo':lambda x: np.quantile(x.dropna(),.025),'median':lambda x: np.median(x.dropna()),'hi':lambda x: np.quantile(x.dropna(),.975),'mean':lambda x: np.mean(x.dropna()),'std':lambda x: np.std(x.dropna()),'resamples':'count'}).reset_index(drop=True)
+
+# Calibrated testing set calibration curves
+test_CI_calib_curves = compiled_test_calibration_curves.dropna().groupby(['THRESHOLD_LEVEL','TRANS_THRESHOLD','TRANSITION_TYPE','DROPOUT_VARS','TUNE_IDX','WINDOW_IDX','THRESHOLD','PREDPROB'],as_index=False)['TRUEPROB'].aggregate({'lo':lambda x: np.quantile(x.dropna(),.025),'median':lambda x: np.median(x.dropna()),'hi':lambda x: np.quantile(x.dropna(),.975),'mean':lambda x: np.mean(x.dropna()),'std':lambda x: np.std(x.dropna()),'resamples':'count'}).reset_index(drop=True)
+
+# Difference values
+test_CI_metrics.to_csv(os.path.join(model_perf_dir,'post_hoc_metrics_CI.csv'),index=False)
+
+# Calibration curves
+test_CI_calib_curves.to_csv(os.path.join(model_perf_dir,'post_hoc_calibration_curves_CI.csv'),index=False)
