@@ -77,7 +77,7 @@ model_perf_dir = os.path.join('/home/sb2406/rds/hpc-work','TILTomorrow_model_per
 test_bs_dir = os.path.join(model_perf_dir,'testing_set_bootstrapping')
 
 # Define and create subdirectory to store testing set bootstrapping results for post-hoc analysis
-post_hoc_bs_dir = os.path.join(model_perf_dir,'sensitivity_bootstrapping')
+post_hoc_bs_dir = os.path.join(model_perf_dir,'post_hoc_bootstrapping')
 os.makedirs(post_hoc_bs_dir,exist_ok=True)
 
 ## Load fundamental information for model training
