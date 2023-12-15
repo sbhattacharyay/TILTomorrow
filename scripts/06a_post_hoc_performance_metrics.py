@@ -75,7 +75,10 @@ model_perf_dir = os.path.join('/home/sb2406/rds/hpc-work','TILTomorrow_model_per
 
 # Define and create subdirectory to store testing set bootstrapping results
 test_bs_dir = os.path.join(model_perf_dir,'testing_set_bootstrapping')
-os.makedirs(test_bs_dir,exist_ok=True)
+
+# Define and create subdirectory to store testing set bootstrapping results for post-hoc analysis
+post_hoc_bs_dir = os.path.join(model_perf_dir,'sensitivity_bootstrapping')
+os.makedirs(post_hoc_bs_dir,exist_ok=True)
 
 ## Load fundamental information for model training
 # Load cross-validation information to get GUPI and outcomes
@@ -309,10 +312,10 @@ def main(array_task_id):
 
     ## Save performance metrics from current resample's testing outputs
     # Save scalar metrics of TIL-Basic model from testing set outputs
-    test_scalar_metrics.to_pickle(os.path.join(test_bs_dir,'post_hoc_test_calibrated_metrics_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
+    test_scalar_metrics.to_pickle(os.path.join(post_hoc_bs_dir,'post_hoc_test_calibrated_metrics_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
 
     # Save threshold-level calibration curves of TIL-Basic model from testing set outputs
-    test_thresh_calibration_curves.to_pickle(os.path.join(test_bs_dir,'post_hoc_test_calibrated_calibration_curves_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
+    test_thresh_calibration_curves.to_pickle(os.path.join(post_hoc_bs_dir,'post_hoc_test_calibrated_calibration_curves_rs_'+str(curr_rs_idx).zfill(4)+'.pkl'))
 
 if __name__ == '__main__':
     
