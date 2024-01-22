@@ -119,7 +119,7 @@ thresh.level.AUC.plot <- function(plot.df,title,color.palette){
                position = position_dodge(width = .75),
                size=.75) +
     facet_grid(cols = vars(Grouping), scales = 'free_x', switch = 'x', space = 'free_x') +
-    coord_cartesian(ylim = c(0.23,1)) +
+    coord_cartesian(ylim = c(0.4363810,1)) +
     scale_fill_manual(values = color.palette)+
     scale_color_manual(values = color.palette)+
     xlab("Day of ICU stay")+

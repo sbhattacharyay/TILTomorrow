@@ -6,7 +6,15 @@
 #
 ### Contents:
 # I. Initialisation
-# Visualise the distribution and transitions of TILBasic over days of ICU stay
+# II. Figure 1c. Threshold-level calibration slope in prediction of next-day TILBasic
+# III. Figure 1d. Threshold-level calibration curves in prediction of next-day TILBasic
+# IV. Figure 2a. Distribution and transitions of TILBasic over days of ICU stay
+# V. Figure 2b. Distribution of changes in TILBasic over days of ICU stay
+# VI. Figure 3a. Threshold-level AUC in prediction of next-day TILBasic
+# VII. Figure 3b. AUC in prediction of increase/decrease in next-day TILBasic
+# VIII. Figure 3c. Somers D in prediction of increase/stasis/decrease in next-day TILBasic
+
+
 # Visualise the distribution of TILBasic over days of ICU stay
 # Visualise the distribution of changes in TILBasic over days of ICU stay
 # Visualise the distribution of next-day TILBasic given previous-day TILBasic
@@ -14,9 +22,6 @@
 # Visualise feature TimeSHAP values across all points of TILBasic transition 
 # Visualise feature TimeSHAP at all points of TILBasic transition for each starting TILBasic value
 # Visualise missing feature TimeSHAP at all points of TILBasic transition
-# Visualise threshold-level AUC in prediction of next-day TILBasic
-# Visualise threshold-level calibration slope in prediction of next-day TILBasic
-# Visualise threshold-level calibration curves in prediction of next-day TILBasic
 # Visualise threshold-level AUC in prediction of next-day TILBasic for post-hoc analysis
 
 ### I. Initialisation
@@ -56,7 +61,117 @@ StrongBluRedDiv3 <- c('#003f5c','#ecb0ff','#de425b')
 Palette4 <- c('#003f5c','#7a5195','#ef5675','#ffa600')
 Palette5 <- c('#003f5c','#58508d','#bc5090','#ff6361','#ffa600')
 
-### Visualise the distribution and transitions of TILBasic over days of ICU stay
+### II. Figure 1c. Threshold-level calibration slope in prediction of next-day TILBasic
+## Load and prepare dataframes
+# Load and clean dataframe containing performance metrics of full model
+full.model.calib.slope.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/test_set_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
+  filter(METRIC=='CALIB_SLOPE',
+         TUNE_IDX==332) %>%
+  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
+         Grouping = case_when(WINDOW_IDX<=6~'1',
+                              WINDOW_IDX<=9~'2',
+                              WINDOW_IDX<=13~'3'),
+         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
+         VariableSet = 'Full')
+
+## Plot and save next-day prediction calibration slope plots
+# TILBasic>0 calibration plots
+all.point.TILBasic.0.calib.slope <- full.model.calib.slope.CIs %>%
+  filter(THRESHOLD == 'TILBasic>0') %>%
+  thresh.level.calib.slope.plot('Next-day TIL(Basic) > 0')
+
+# TILBasic>1 calibration plots
+all.point.TILBasic.1.calib.slope <- full.model.calib.slope.CIs %>%
+  filter(THRESHOLD == 'TILBasic>1') %>%
+  thresh.level.calib.slope.plot('Next-day TIL(Basic) > 1')
+
+# TILBasic>2 calibration plots
+all.point.TILBasic.2.calib.slope <- full.model.calib.slope.CIs %>%
+  filter(THRESHOLD == 'TILBasic>2') %>%
+  thresh.level.calib.slope.plot('Next-day TIL(Basic) > 2')
+
+# TILBasic>3 calibration plots
+all.point.TILBasic.3.calib.slope <- full.model.calib.slope.CIs %>%
+  filter(THRESHOLD == 'TILBasic>3') %>%
+  thresh.level.calib.slope.plot('Next-day TIL(Basic) > 3')
+
+# Compile ggplot objects of all-point, threshold-level calibration slope plots
+all.point.thresh.calib.slope <- ggarrange(all.point.TILBasic.0.calib.slope,
+                                          all.point.TILBasic.1.calib.slope,
+                                          all.point.TILBasic.2.calib.slope,
+                                          all.point.TILBasic.3.calib.slope,
+                                          ncol = 2, nrow = 2)
+
+# Create directory for current date and save threshold-level AUC plots for next-day TILBasic prediction
+dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
+ggsave(file.path('../plots',Sys.Date(),'all_point_thresh_calib_slopes.svg'),all.point.thresh.calib.slope,device= svglite,units='in',dpi=600,width=3.75,height = 2.75)
+
+### III. Figure 1d. Threshold-level calibration curves in prediction of next-day TILBasic
+## Load and prepare dataframes
+# Load and clean dataframe containing performance metrics of full model
+full.model.calib.curve.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/test_set_calibration_curves_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
+  filter(TUNE_IDX==332) %>%
+  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
+         Grouping = case_when(WINDOW_IDX<=6~'1',
+                              WINDOW_IDX<=9~'2',
+                              WINDOW_IDX<=13~'3'),
+         lo = case_when(lo<0~0,
+                        lo>1~1,
+                        T~lo),
+         median = case_when(median<0~0,
+                            median>1~1,
+                            T~median),
+         hi = case_when(hi<0~0,
+                        hi>1~1,
+                        T~hi),
+         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
+         VariableSet = 'Full',
+         THRESHOLD = str_replace(THRESHOLD,'TILBasic>','Next-day TIL(Basic) > '))
+
+## Plot and save next-day prediction calibration curve plots
+# TILBasic calibration curve
+all.point.TILBasic.calib.curve <- full.model.calib.curve.CIs %>%
+  filter(ICUDay %in% c('1','2','6','13')) %>%
+  ggplot(aes(x=100*PREDPROB)) +
+  facet_wrap(~THRESHOLD, scales = 'free',ncol = 3) +
+  coord_cartesian(ylim = c(0,100),xlim = c(0,100))+
+  geom_segment(x = 0, y = 0, xend = 100, yend = 100,alpha = 0.5,linetype = "dashed",size=.75/.pt, color = 'gray')+
+  geom_ribbon(aes(ymin = 100*lo, ymax = 100*hi, fill = ICUDay), alpha = 0.3,size=.75/.pt,color=NA) +
+  geom_line(aes(y = 100*median, color = ICUDay), alpha = 1, size=1.3/.pt) +
+  scale_x_continuous(expand = expansion(mult = c(.01, .01))) +
+  scale_y_continuous(expand = expansion(mult = c(.01, .01))) +
+  guides(fill=guide_legend(nrow=1,byrow=TRUE),color=guide_legend(nrow=1,byrow=TRUE)) +
+  scale_fill_manual(name = "Day of ICU stay",values = Palette4)+
+  scale_color_manual(name = "Day of ICU stay",values = Palette4)+
+  xlab("Predicted probability (%)") +
+  ylab("Observed probability (%)") +
+  theme_classic(base_family = 'Roboto Condensed') +
+  theme(
+    strip.text = element_text(size=7, color = "black",face = 'bold',margin = margin(b = .5)), 
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    panel.spacing = unit(5, 'points'),
+    axis.text.x = element_text(size = 5, color = "black",margin = margin(r = 0)),
+    axis.text.y = element_text(size = 5, color = "black",margin = margin(r = 0)),
+    axis.title.x = element_text(size = 7, color = "black",face = 'bold'),
+    axis.title.y = element_text(size = 7, color = "black",face = 'bold'),
+    strip.background = element_blank(),
+    aspect.ratio = 1,
+    panel.border = element_rect(colour = 'black', fill=NA, size = 1/.pt),
+    plot.margin=grid::unit(c(0,2,0,0), "mm"),
+    legend.position = 'bottom',
+    legend.title = element_text(size = 7, color = "black", face = 'bold'),
+    legend.text=element_text(size=6),
+    axis.line = element_blank(),
+    legend.key.size = unit(1.3/.pt,"line")
+  )
+
+# Create directory for current date and save threshold-level AUC plots for next-day TILBasic prediction
+dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
+ggsave(file.path('../plots',Sys.Date(),'all_point_thresh_calib_curves.svg'),all.point.TILBasic.calib.curve,device= svglite,units='in',dpi=600,width=3.75,height = 3)
+
+### IV. Figure 2a. Distribution and transitions of TILBasic over days of ICU stay
 ## Load and prepare dataframes
 # Call function to get formatted TILBasic values over days of ICU stay
 study.days.TILBasic <- get.formatted.TILBasic(study.TIL.days) %>%
@@ -119,6 +234,365 @@ TILBasic.alluvial.plot <- ggplot(study.days.TILBasic.counts,
 # Create directory for current date and save TILBasic distribution over days of ICU stay
 dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
 ggsave(file.path('../plots',Sys.Date(),'TIL_Basic_alluvial.svg'),TILBasic.alluvial.plot,device=svglite,units='in',dpi=600,width=3.75,height=3.81)
+
+### V. Figure 2b. Distribution of changes in TILBasic over days of ICU stay
+## Load and prepare dataframes
+# Call function to get formatted TILBasic values over days of ICU stay
+study.days.TILBasic <- get.formatted.TILBasic(study.TIL.days) %>%
+  mutate(ICUDay=fct_reorder(factor(ICUDay), TILTimepoint),
+         TILBasic = factor(TILBasic,levels=c('4','3','2','1','0','Missing','Discharged','WLST or Died')),
+         Grouping = case_when(TILTimepoint<=6~'1',
+                              TILTimepoint<=9~'2',
+                              TILTimepoint<=13~'3',
+                              TILTimepoint<=20~'4',
+                              TILTimepoint<=27~'5'))
+
+# Add tomorrow's TILBasic values to dataframe
+trans.TILBasic <- study.days.TILBasic %>% 
+  left_join(study.days.TILBasic %>%
+              mutate(NextTILTimepoint = TILTimepoint,
+                     TILTimepoint = case_when(TILTimepoint<=7 ~ TILTimepoint-1,
+                                              TILTimepoint==10 ~ 7,
+                                              TILTimepoint==14 ~ 10)) %>%
+              rename(TomorrowTILBasic = TILBasic) %>%
+              select(-c(ICUDay,Grouping))) %>%
+  filter(TILTimepoint!=14,
+         !(TILBasic %in% c('WLST or Died','Discharged')),
+         !(TomorrowTILBasic %in% c('WLST or Died','Discharged'))) %>%
+  mutate(TimepointTransition = paste(TILTimepoint,'→',NextTILTimepoint),
+         TILBasicTransition = case_when(TILBasic == 'Missing' ~ 'Missing',
+                                        TomorrowTILBasic == 'Missing' ~ 'Missing',
+                                        TILBasic == TomorrowTILBasic ~ 'No change',
+                                        as.character(TomorrowTILBasic)>as.character(TILBasic)~'Increase',
+                                        as.character(TomorrowTILBasic)<as.character(TILBasic)~'Decrease'),
+         TILBasicTransition = factor(TILBasicTransition,levels=c('Missing','Decrease','No change','Increase'))) %>%
+  count(TimepointTransition, Grouping, TILBasicTransition) %>%
+  group_by(TimepointTransition, Grouping) %>%
+  mutate(pct=100*(n/sum(n)),
+         TransTotal = sum(n),
+         Label = sprintf('%.0f%%',pct))
+
+## Plot and save change in TILBasic distribution over days of ICU stay
+# Create ggplot object of daily changes in TILBasic distribution
+dTILBasic.distributions <- trans.TILBasic %>%
+  ggplot(aes(fill=fct_rev(TILBasicTransition), y=n, x=TimepointTransition)) + 
+  geom_bar(position="stack", stat="identity",color='black',size=1/.pt) +
+  geom_text(aes(label = Label),
+            position = position_stack(vjust = .5),
+            size=6/.pt,
+            family = 'Roboto Condensed',
+            color='white') +
+  scale_fill_manual(values=rev(c('gray60',BluRedDiv3))) +
+  guides(fill=guide_legend(title="Change in TIL(Basic)",nrow = 1,reverse = T)) +
+  scale_y_continuous(expand = expansion(mult = c(.00, .00)))+
+  scale_x_discrete(expand = expansion(mult = c(.00, .00)))+
+  theme_minimal(base_family = 'Roboto Condensed') +
+  ylab('Count (n)') +
+  xlab('Day-to-day steps in ICU stay') +
+  facet_grid(cols = vars(Grouping), scales = 'free_x', switch = 'x', space = 'free_x') +
+  theme(
+    strip.text = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.spacing = unit(10, 'points'),
+    axis.text.x = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
+    axis.text.y = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
+    axis.title.x = element_text(size = 7, color = "black",face = 'bold'),
+    axis.title.y = element_text(size = 7, color = "black",face = 'bold',margin = margin(0,0,0,0)),
+    legend.position = 'bottom',
+    legend.title = element_text(size = 7, color = "black", face = 'bold'),
+    legend.text=element_text(size=6),
+    legend.key.size = unit(1.3/.pt,"line")
+  )
+
+# Create directory for current date and save change in TILBasic distribution over days of ICU stay
+dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
+ggsave(file.path('../plots',Sys.Date(),'change_in_TIL_Basic_distributions_over_time.svg'),dTILBasic.distributions,device=svglite,units='in',dpi=600,width=3.75,height=3.81)
+
+### VI. Figure 3a. Threshold-level AUC in prediction of next-day TILBasic
+## Load and prepare dataframes
+# Load and clean dataframe containing performance metrics of full model
+full.model.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/test_set_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
+  filter(METRIC=='AUC',
+         TUNE_IDX==332) %>%
+  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
+         Grouping = case_when(WINDOW_IDX<=6~'1',
+                              WINDOW_IDX<=9~'2',
+                              WINDOW_IDX<=13~'3'),
+         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
+         VariableSet = 'Full')
+
+# Load and clean dataframe containing performance metrics of models trained without dynamic variables and without clinician impressions/treatments 
+limited.model.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/sens_analysis_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
+  filter(METRIC=='AUC',
+         TUNE_IDX==332,
+         SENS_IDX %in% c(1,4)) %>%
+  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
+         Grouping = case_when(WINDOW_IDX<=6~'1',
+                              WINDOW_IDX<=9~'2',
+                              WINDOW_IDX<=13~'3'),
+         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
+         VariableSet = case_when(SENS_IDX==1~'No dynamic',
+                                 SENS_IDX==4~'No clinician impressions or treatments'))
+
+# Load and clean dataframe containing performance metrics of last-TILBasic-carried forward 
+no.info.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/no_information_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
+  filter(METRIC=='AUC',
+         TUNE_IDX==332) %>%
+  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
+         Grouping = case_when(WINDOW_IDX<=6~'1',
+                              WINDOW_IDX<=9~'2',
+                              WINDOW_IDX<=13~'3'),
+         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
+         VariableSet = 'Only last available TIL(Basic)')
+
+# Combine all-point AUC values into single dataframe
+AUC.plot.df <- full.model.AUC.CIs %>%
+  filter(METRIC=='AUC',
+         TUNE_IDX==332) %>%
+  select(TUNE_IDX,ICUDay,THRESHOLD,lo,median,hi,Grouping,VariableSet) %>%
+  rbind(limited.model.AUC.CIs %>%
+          filter(METRIC=='AUC',
+                 TUNE_IDX==332) %>%
+          select(TUNE_IDX,ICUDay,THRESHOLD,lo,median,hi,Grouping,VariableSet)) %>%
+  rbind(no.info.AUC.CIs %>%
+          select(TUNE_IDX,THRESHOLD,ICUDay,lo,median,hi,Grouping,VariableSet)) %>%
+  mutate(VariableSet = factor(VariableSet,levels=c('Full','Only last available TIL(Basic)','No clinician impressions or treatments','No dynamic')))
+
+# # Load and clean dataframe containing performance metrics of full model at points of transition
+# trans.full.model.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/trans_test_set_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
+#   filter(METRIC=='AUC',
+#          TUNE_IDX==332) %>%
+#   mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
+#          Grouping = case_when(WINDOW_IDX<=6~'1',
+#                               WINDOW_IDX<=9~'2',
+#                               WINDOW_IDX<=13~'3'),
+#          ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
+#          VariableSet = 'Full')
+# 
+# # Load and clean dataframe containing performance metrics of models trained without dynamic variables and without clinician impressions/treatments at points of transition
+# trans.limited.model.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/trans_sens_analysis_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
+#   filter(METRIC=='AUC',
+#          TUNE_IDX==332,
+#          SENS_IDX %in% c(1,4)) %>%
+#   mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
+#          Grouping = case_when(WINDOW_IDX<=6~'1',
+#                               WINDOW_IDX<=9~'2',
+#                               WINDOW_IDX<=13~'3'),
+#          ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
+#          VariableSet = case_when(SENS_IDX==1~'No dynamic',
+#                                  SENS_IDX==4~'No clinician impressions or treatments'))
+# 
+# # Load and clean dataframe containing performance metrics of last-TILBasic carried forward at points of transition
+# trans.no.info.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/trans_no_information_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
+#   filter(METRIC=='AUC',
+#          TUNE_IDX==332) %>%
+#   mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
+#          Grouping = case_when(WINDOW_IDX<=6~'1',
+#                               WINDOW_IDX<=9~'2',
+#                               WINDOW_IDX<=13~'3'),
+#          ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
+#          VariableSet = 'Only last available TILBasic')
+# 
+# # Combine transition-point AUC values into single dataframe
+# trans.AUC.plot.df <- trans.full.model.AUC.CIs %>%
+#   filter(METRIC=='AUC',
+#          TUNE_IDX==332) %>%
+#   select(TUNE_IDX,ICUDay,THRESHOLD,lo,median,hi,Grouping,VariableSet) %>%
+#   rbind(trans.limited.model.AUC.CIs %>%
+#           filter(METRIC=='AUC',
+#                  TUNE_IDX==332) %>%
+#           select(TUNE_IDX,ICUDay,THRESHOLD,lo,median,hi,Grouping,VariableSet)) %>%
+#   rbind(trans.no.info.AUC.CIs %>%
+#           select(TUNE_IDX,THRESHOLD,ICUDay,lo,median,hi,Grouping,VariableSet)) %>%
+#   mutate(VariableSet = factor(VariableSet,levels=c('Full','Only last available TILBasic','No clinician impressions or treatments','No dynamic')))
+
+## Plot and save next-day prediction AUC plots
+# All-point TILBasic>0 AUCs
+all.point.TILBasic.0.AUC <- AUC.plot.df %>%
+  filter(THRESHOLD == 'TILBasic>0') %>%
+  thresh.level.AUC.plot('Next-day TIL(Basic) > 0',Palette4)
+
+# All-point TILBasic>1 AUCs
+all.point.TILBasic.1.AUC <- AUC.plot.df %>%
+  filter(THRESHOLD == 'TILBasic>1') %>%
+  thresh.level.AUC.plot('Next-day TIL(Basic) > 1',Palette4)
+
+# All-point TILBasic>2 AUCs
+all.point.TILBasic.2.AUC <- AUC.plot.df %>%
+  filter(THRESHOLD == 'TILBasic>2') %>%
+  thresh.level.AUC.plot('Next-day TIL(Basic) > 2',Palette4)
+
+# All-point TILBasic>3 AUCs
+all.point.TILBasic.3.AUC <- AUC.plot.df %>%
+  filter(THRESHOLD == 'TILBasic>3') %>%
+  thresh.level.AUC.plot('Next-day TIL(Basic) > 3',Palette4)
+
+# Compile ggplot objects of all-point, threshold-level AUC plots
+all.point.thresh.AUCs <- ggarrange(all.point.TILBasic.0.AUC,
+                                   all.point.TILBasic.1.AUC,
+                                   all.point.TILBasic.2.AUC,
+                                   all.point.TILBasic.3.AUC,
+                                   ncol = 4, nrow = 1)
+
+# # Transition-point TILBasic>0 AUCs
+# trans.point.TILBasic.0.AUC <- trans.AUC.plot.df %>%
+#   filter(THRESHOLD == 'TILBasic>0') %>%
+#   thresh.level.AUC.plot('Next-day TIL(Basic) > 0',Palette4)
+# 
+# # Transition-point TILBasic>1 AUCs
+# trans.point.TILBasic.1.AUC <- trans.AUC.plot.df %>%
+#   filter(THRESHOLD == 'TILBasic>1') %>%
+#   thresh.level.AUC.plot('Next-day TIL(Basic) > 1',Palette4)
+# 
+# # Transition-point TILBasic>2 AUCs
+# trans.point.TILBasic.2.AUC <- trans.AUC.plot.df %>%
+#   filter(THRESHOLD == 'TILBasic>2') %>%
+#   thresh.level.AUC.plot('Next-day TIL(Basic) > 2',Palette4)
+# 
+# # Transition-point TILBasic>3 AUCs
+# trans.point.TILBasic.3.AUC <- trans.AUC.plot.df %>%
+#   filter(THRESHOLD == 'TILBasic>3') %>%
+#   thresh.level.AUC.plot('Next-day TIL(Basic) > 3',Palette4)
+# 
+# # Compile ggplot objects of transition-point, threshold-level AUC plots
+# trans.point.thresh.AUCs <- ggarrange(trans.point.TILBasic.0.AUC,
+#                                      trans.point.TILBasic.1.AUC,
+#                                      trans.point.TILBasic.2.AUC,
+#                                      trans.point.TILBasic.3.AUC,
+#                                      ncol = 4, nrow = 1)
+
+# Create directory for current date and save threshold-level AUC plots for next-day TILBasic prediction
+dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
+ggsave(file.path('../plots',Sys.Date(),'all_point_thresh_AUCs.svg'),all.point.thresh.AUCs,device= svglite,units='in',dpi=600,width=7.405,height = 1.875)
+# ggsave(file.path('../plots',Sys.Date(),'trans_point_thresh_AUCs.svg'),trans.point.thresh.AUCs,device= svglite,units='in',dpi=600,width=7.405,height = 1.875)
+
+### VII. Figure 3b. AUC in prediction of increase/decrease in next-day TILBasic
+## Load and prepare dataframes
+# Load and clean dataframe containing transition performance metrics
+trans.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/trans_pred_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
+  filter(METRIC=='AUC',
+         TUNE_IDX==332) %>%
+  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
+         Grouping = case_when(WINDOW_IDX<=6~'1',
+                              WINDOW_IDX<=9~'2',
+                              WINDOW_IDX<=13~'3'),
+         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
+         VariableSet = case_when(DROPOUT_VARS == 'none' ~ 'Full',
+                                 DROPOUT_VARS == 'last_TIL_only' ~ 'Only last available TIL(Basic)',
+                                 DROPOUT_VARS == 'clinician_impressions_and_treatments' ~ 'No treatments',
+                                 DROPOUT_VARS == 'dynamic' ~ 'No dynamic')) %>%
+  select(TUNE_IDX,ICUDay,THRESHOLD,lo,median,hi,Grouping,VariableSet) %>%
+  mutate(VariableSet = factor(VariableSet,levels=c('Full','Only last available TIL(Basic)','No treatments','No dynamic')))
+
+## Plot and save next-day transition prediction AUC plots
+# All-point de-escalation AUCs
+de.escalation.AUC <- trans.AUC.CIs %>%
+  filter(THRESHOLD == 'Decrease') %>%
+  thresh.level.AUC.plot('Next-day de-escalation in TIL(Basic)',Palette4)
+
+# All-point escalation AUCs
+escalation.AUC <- trans.AUC.CIs %>%
+  filter(THRESHOLD == 'Increase') %>%
+  thresh.level.AUC.plot('Next-day escalation in TIL(Basic)',Palette4)
+
+# Compile ggplot objects of de-escalation and escalation AUCs
+change.thresh.AUCs <- ggarrange(de.escalation.AUC,
+                                escalation.AUC,
+                                ncol = 2, nrow = 1)
+
+# Create directory for current date and save threshold-level AUC plots for predicting a change in next-day TILBasic
+dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
+ggsave(file.path('../plots',Sys.Date(),'de_escalation_AUCs.svg'),change.thresh.AUCs,device= svglite,units='in',dpi=600,width=3.655,height = 1.875)
+
+### VIII. Figure 3c. Somers D in prediction of increase/stasis/decrease in next-day TILBasic
+## Load and prepare dataframes
+# Load and clean dataframe containing transition performance metrics
+trans.Somers.D.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/trans_pred_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
+  filter(METRIC=='Somers D',
+         TUNE_IDX==332) %>%
+  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
+         Grouping = case_when(WINDOW_IDX<=6~'1',
+                              WINDOW_IDX<=9~'2',
+                              WINDOW_IDX<=13~'3'),
+         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
+         VariableSet = case_when(DROPOUT_VARS == 'none' ~ 'Full',
+                                 DROPOUT_VARS == 'last_TIL_only' ~ 'Only last available TIL(Basic)',
+                                 DROPOUT_VARS == 'clinician_impressions_and_treatments' ~ 'No treatments',
+                                 DROPOUT_VARS == 'dynamic' ~ 'No dynamic')) %>%
+  select(TUNE_IDX,ICUDay,THRESHOLD,lo,median,hi,Grouping,VariableSet) %>%
+  mutate(VariableSet = factor(VariableSet,levels=c('Full','Only last available TIL(Basic)','No treatments','No dynamic')))
+
+## Plot and save change-in-TILBasic explanation over days of ICU stay
+# Create ggplot object
+trans.Somers.D.plot <- trans.Somers.D.CIs %>%
+  ggplot() +
+  geom_ribbon(data=trans.Somers.D.CIs %>% filter(Grouping==1),
+              mapping=aes(x=ICUDay, ymin=100*lo, ymax=100*hi, fill=VariableSet, group = VariableSet),
+              alpha=.2) +
+  geom_line(data=trans.Somers.D.CIs %>% filter(Grouping==1),
+            mapping=aes(x=ICUDay, y=100*median, color=VariableSet, group = VariableSet),
+            lwd=1.75/.pt) +
+  geom_errorbar(data=trans.Somers.D.CIs %>% filter(Grouping!=1),
+                mapping=aes(x=ICUDay, ymin=100*lo, ymax=100*hi, color=VariableSet),
+                position = position_dodge(width = .75),
+                width=.35) +
+  geom_point(data=trans.Somers.D.CIs %>% filter(Grouping!=1),
+             mapping=aes(x=ICUDay, y=100*median, color=VariableSet),
+             position = position_dodge(width = .75),
+             size=1) +
+  coord_cartesian(ylim = c(0,100)) +
+  xlab("Day of ICU stay")+
+  ylab("Explanation of ordinal variance in next-day changes in TILBasic (%)")+
+  scale_x_discrete(expand = expansion(mult = c(.05, .05)))+
+  scale_y_continuous(breaks = seq(0,100,10),expand = expansion(mult = c(.05, 0))) +
+  scale_fill_manual(values = Palette4)+
+  scale_color_manual(values = Palette4)+
+  guides(fill=guide_legend(title="Model variable set"),
+         color=guide_legend(title="Model variable set")) +
+  theme_minimal(base_family = 'Roboto Condensed') +
+  facet_grid(cols = vars(Grouping), scales = 'free_x', switch = 'x', space = 'free_x') +
+  theme(
+    axis.text.x = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
+    axis.text.y = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
+    axis.title.x = element_text(size = 7, color = "black",face = 'bold'),
+    axis.title.y = element_text(size = 7, color = "black",face = 'bold',margin = margin(0,0,0,0)),
+    panel.border = element_blank(),
+    axis.line.x = element_line(size=1/.pt),
+    axis.text = element_text(color='black'),
+    legend.position = 'none',
+    panel.spacing = unit(5, 'points'),
+    plot.margin=grid::unit(c(0,2,0,0), "mm"),
+    strip.text = element_blank(),
+  )
+
+# Create directory for current date and save TILBasic explanation over days of ICU stay at all points plot
+dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
+ggsave(file.path('../plots',Sys.Date(),'explanation_of_changes_somers.svg'),trans.Somers.D.plot,device= svglite,units='in',dpi=600,width=3.655,height = 1.875)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ### Visualise the distribution of TILBasic over days of ICU stay
 ## Load and prepare dataframes
@@ -217,80 +691,11 @@ TILBasic.distributions <- study.days.TILBasic %>%
 dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
 ggsave(file.path('../plots',Sys.Date(),'TIL_Basic_distributions_over_time.svg'),TILBasic.distributions,device=svglite,units='in',dpi=600,width=3.75,height=3.81)
 
-### Visualise the distribution of changes in TILBasic over days of ICU stay
-## Load and prepare dataframes
-# Call function to get formatted TILBasic values over days of ICU stay
-study.days.TILBasic <- get.formatted.TILBasic(study.TIL.days) %>%
-  mutate(ICUDay=fct_reorder(factor(ICUDay), TILTimepoint),
-         TILBasic = factor(TILBasic,levels=c('4','3','2','1','0','Missing','Discharged','WLST or Died')),
-         Grouping = case_when(TILTimepoint<=6~'1',
-                              TILTimepoint<=9~'2',
-                              TILTimepoint<=13~'3',
-                              TILTimepoint<=20~'4',
-                              TILTimepoint<=27~'5'))
 
-# Add tomorrow's TILBasic values to dataframe
-trans.TILBasic <- study.days.TILBasic %>% 
-  left_join(study.days.TILBasic %>%
-              mutate(NextTILTimepoint = TILTimepoint,
-                     TILTimepoint = case_when(TILTimepoint<=7 ~ TILTimepoint-1,
-                                              TILTimepoint==10 ~ 7,
-                                              TILTimepoint==14 ~ 10)) %>%
-              rename(TomorrowTILBasic = TILBasic) %>%
-              select(-c(ICUDay,Grouping))) %>%
-  filter(TILTimepoint!=14,
-         !(TILBasic %in% c('WLST or Died','Discharged')),
-         !(TomorrowTILBasic %in% c('WLST or Died','Discharged'))) %>%
-  mutate(TimepointTransition = paste(TILTimepoint,'→',NextTILTimepoint),
-         TILBasicTransition = case_when(TILBasic == 'Missing' ~ 'Missing',
-                                        TomorrowTILBasic == 'Missing' ~ 'Missing',
-                                        TILBasic == TomorrowTILBasic ~ 'No change',
-                                        as.character(TomorrowTILBasic)>as.character(TILBasic)~'Increase',
-                                        as.character(TomorrowTILBasic)<as.character(TILBasic)~'Decrease'),
-         TILBasicTransition = factor(TILBasicTransition,levels=c('Missing','Decrease','No change','Increase'))) %>%
-  count(TimepointTransition, Grouping, TILBasicTransition) %>%
-  group_by(TimepointTransition, Grouping) %>%
-  mutate(pct=100*(n/sum(n)),
-         TransTotal = sum(n),
-         Label = sprintf('%.0f%%',pct))
 
-## Plot and save change in TILBasic distribution over days of ICU stay
-# Create ggplot object of daily changes in TILBasic distribution
-dTILBasic.distributions <- trans.TILBasic %>%
-  ggplot(aes(fill=fct_rev(TILBasicTransition), y=n, x=TimepointTransition)) + 
-  geom_bar(position="stack", stat="identity",color='black',size=1/.pt) +
-  geom_text(aes(label = Label),
-            position = position_stack(vjust = .5),
-            size=6/.pt,
-            family = 'Roboto Condensed',
-            color='white') +
-  scale_fill_manual(values=rev(c('gray60',BluRedDiv3))) +
-  guides(fill=guide_legend(title="Change in TIL(Basic)",nrow = 1,reverse = T)) +
-  scale_y_continuous(expand = expansion(mult = c(.00, .00)))+
-  scale_x_discrete(expand = expansion(mult = c(.00, .00)))+
-  theme_minimal(base_family = 'Roboto Condensed') +
-  ylab('Count (n)') +
-  xlab('Day-to-day steps in ICU stay') +
-  facet_grid(cols = vars(Grouping), scales = 'free_x', switch = 'x', space = 'free_x') +
-  theme(
-    strip.text = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.border = element_blank(),
-    panel.spacing = unit(10, 'points'),
-    axis.text.x = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
-    axis.text.y = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
-    axis.title.x = element_text(size = 7, color = "black",face = 'bold'),
-    axis.title.y = element_text(size = 7, color = "black",face = 'bold',margin = margin(0,0,0,0)),
-    legend.position = 'bottom',
-    legend.title = element_text(size = 7, color = "black", face = 'bold'),
-    legend.text=element_text(size=6),
-    legend.key.size = unit(1.3/.pt,"line")
-  )
 
-# Create directory for current date and save change in TILBasic distribution over days of ICU stay
-dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
-ggsave(file.path('../plots',Sys.Date(),'change_in_TIL_Basic_distributions_over_time.svg'),dTILBasic.distributions,device=svglite,units='in',dpi=600,width=3.75,height=3.81)
+
+
 
 ### Visualise the distribution of next-day TILBasic given previous-day TILBasic
 ## Load and prepare dataframes
@@ -572,10 +977,10 @@ ggsave(file.path('../plots',Sys.Date(),'no_clinician_timeshap.png'),no.clinician
 # Load and clean dataframe containing feature TimeSHAP values
 filt.timeSHAP.df <- read.csv('../TILTomorrow_model_interpretations/v2-0/timeSHAP/viz_feature_timeSHAP_values.csv',na.strings = c("NA","NaN","", " ")) %>%
   filter(VIZ_IDX %in% c(132,292)) %>%
-  mutate(VIZ_IDX = case_when((VIZ_IDX == 132) ~ 'Models without clinician impressions or treatments',
+  mutate(VIZ_IDX = case_when((VIZ_IDX == 132) ~ 'Models without treatments',
                              (VIZ_IDX == 292) ~'Models with full variable set'),
          VIZ_IDX = factor(VIZ_IDX,levels=c('Models with full variable set',
-                                           'Models without clinician impressions or treatments')),
+                                           'Models without treatments')),
          GROUPS = case_when((TILBasic == 0) ~ 'Bottom',
                             (TILBasic == 4) ~ 'Top',
                             (PlotIdx >= 11) ~ 'Top',
@@ -593,7 +998,7 @@ TILBasic.0.full.plot <- filt.timeSHAP.df %>%
 
 # Create ggplot object for limited model TimeSHAP with TILBasic = 0
 TILBasic.0.limited.plot <- filt.timeSHAP.df %>%
-  filter(VIZ_IDX=='Models without clinician impressions or treatments',
+  filter(VIZ_IDX=='Models without treatments',
          TILBasic=='TIL(Basic) = 0') %>%
   mutate(Label = fct_reorder(Label, PlotIdx)) %>%
   TILBasic.timeSHAP.plots()
@@ -607,7 +1012,7 @@ TILBasic.1.full.plot <- filt.timeSHAP.df %>%
 
 # Create ggplot object for limited model TimeSHAP with TILBasic = 1
 TILBasic.1.limited.plot <- filt.timeSHAP.df %>%
-  filter(VIZ_IDX=='Models without clinician impressions or treatments',
+  filter(VIZ_IDX=='Models without treatments',
          TILBasic=='TIL(Basic) = 1') %>%
   mutate(Label = fct_reorder(Label, PlotIdx)) %>%
   TILBasic.timeSHAP.plots()
@@ -621,7 +1026,7 @@ TILBasic.2.full.plot <- filt.timeSHAP.df %>%
 
 # Create ggplot object for limited model TimeSHAP with TILBasic = 2
 TILBasic.2.limited.plot <- filt.timeSHAP.df %>%
-  filter(VIZ_IDX=='Models without clinician impressions or treatments',
+  filter(VIZ_IDX=='Models without treatments',
          TILBasic=='TIL(Basic) = 2') %>%
   mutate(Label = fct_reorder(Label, PlotIdx)) %>%
   TILBasic.timeSHAP.plots()
@@ -635,7 +1040,7 @@ TILBasic.3.full.plot <- filt.timeSHAP.df %>%
 
 # Create ggplot object for limited model TimeSHAP with TILBasic = 3
 TILBasic.3.limited.plot <- filt.timeSHAP.df %>%
-  filter(VIZ_IDX=='Models without clinician impressions or treatments',
+  filter(VIZ_IDX=='Models without treatments',
          TILBasic=='TIL(Basic) = 3') %>%
   mutate(Label = fct_reorder(Label, PlotIdx)) %>%
   TILBasic.timeSHAP.plots()
@@ -649,7 +1054,7 @@ TILBasic.4.full.plot <- filt.timeSHAP.df %>%
 
 # Create ggplot object for limited model TimeSHAP with TILBasic = 4
 TILBasic.4.limited.plot <- filt.timeSHAP.df %>%
-  filter(VIZ_IDX=='Models without clinician impressions or treatments',
+  filter(VIZ_IDX=='Models without treatments',
          TILBasic=='TIL(Basic) = 4') %>%
   mutate(Label = fct_reorder(Label, PlotIdx)) %>%
   TILBasic.timeSHAP.plots()
@@ -672,10 +1077,10 @@ ggsave(file.path('../plots',Sys.Date(),'TILBasic_4_limited_model_timeshap.png'),
 # Load and clean dataframe containing feature TimeSHAP values
 filt.timeSHAP.df <- read.csv('../TILTomorrow_model_interpretations/v2-0/timeSHAP/viz_feature_timeSHAP_values.csv',na.strings = c("NA","NaN","", " ")) %>%
   filter(VIZ_IDX %in% c(131,291)) %>%
-  mutate(VIZ_IDX = case_when((VIZ_IDX == 131) ~ 'Models without clinician impressions or treatments',
+  mutate(VIZ_IDX = case_when((VIZ_IDX == 131) ~ 'Models without treatments',
                              (VIZ_IDX == 291) ~'Models with full variable set'),
          VIZ_IDX = factor(VIZ_IDX,levels=c('Models with full variable set',
-                                           'Models without clinician impressions or treatments')),
+                                           'Models without treatments')),
          GROUPS = case_when((PlotIdx >= 11) ~ 'Top',
                             (PlotIdx <= 10) ~'Bottom'),
          GROUPS = factor(GROUPS,levels=c('Top','Middle','Bottom')))
@@ -689,7 +1094,7 @@ missing.val.full.plot <- filt.timeSHAP.df %>%
 
 # Create ggplot object for full model TimeSHAP of missing values
 missing.val.limited.plot <- filt.timeSHAP.df %>%
-  filter(VIZ_IDX=='Models without clinician impressions or treatments') %>%
+  filter(VIZ_IDX=='Models without treatments') %>%
   mutate(Label = fct_reorder(Label, PlotIdx)) %>%
   TILBasic.timeSHAP.plots()
 
@@ -699,281 +1104,17 @@ ggsave(file.path('../plots',Sys.Date(),'missing_value_full_model_timeshap.png'),
 ggsave(file.path('../plots',Sys.Date(),'missing_value_limited_model_timeshap.png'),missing.val.limited.plot,units='in',dpi=600,height=3.38,width=3.75)
 
 ### Visualise threshold-level AUC in prediction of next-day TILBasic
-## Load and prepare dataframes
-# Load and clean dataframe containing performance metrics of full model
-full.model.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/test_set_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
-  filter(METRIC=='AUC',
-         TUNE_IDX==332) %>%
-  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
-         Grouping = case_when(WINDOW_IDX<=6~'1',
-                              WINDOW_IDX<=9~'2',
-                              WINDOW_IDX<=13~'3'),
-         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
-         VariableSet = 'Full')
 
-# Load and clean dataframe containing performance metrics of models trained without dynamic variables and without clinician impressions/treatments 
-limited.model.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/sens_analysis_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
-  filter(METRIC=='AUC',
-         TUNE_IDX==332,
-         SENS_IDX %in% c(1,4)) %>%
-  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
-         Grouping = case_when(WINDOW_IDX<=6~'1',
-                              WINDOW_IDX<=9~'2',
-                              WINDOW_IDX<=13~'3'),
-         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
-         VariableSet = case_when(SENS_IDX==1~'No dynamic',
-                                 SENS_IDX==4~'No clinician impressions or treatments'))
 
-# Load and clean dataframe containing performance metrics of last-TILBasic-carried forward 
-no.info.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/no_information_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
-  filter(METRIC=='AUC',
-         TUNE_IDX==332) %>%
-  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
-         Grouping = case_when(WINDOW_IDX<=6~'1',
-                              WINDOW_IDX<=9~'2',
-                              WINDOW_IDX<=13~'3'),
-         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
-         VariableSet = 'Only last available TIL(Basic)')
-
-# Combine all-point AUC values into single dataframe
-AUC.plot.df <- full.model.AUC.CIs %>%
-  filter(METRIC=='AUC',
-         TUNE_IDX==332) %>%
-  select(TUNE_IDX,ICUDay,THRESHOLD,lo,median,hi,Grouping,VariableSet) %>%
-  rbind(limited.model.AUC.CIs %>%
-          filter(METRIC=='AUC',
-                 TUNE_IDX==332) %>%
-          select(TUNE_IDX,ICUDay,THRESHOLD,lo,median,hi,Grouping,VariableSet)) %>%
-  rbind(no.info.AUC.CIs %>%
-          select(TUNE_IDX,THRESHOLD,ICUDay,lo,median,hi,Grouping,VariableSet)) %>%
-  mutate(VariableSet = factor(VariableSet,levels=c('Full','Only last available TIL(Basic)','No clinician impressions or treatments','No dynamic')))
-
-# Load and clean dataframe containing performance metrics of full model at points of transition
-trans.full.model.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/trans_test_set_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
-  filter(METRIC=='AUC',
-         TUNE_IDX==332) %>%
-  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
-         Grouping = case_when(WINDOW_IDX<=6~'1',
-                              WINDOW_IDX<=9~'2',
-                              WINDOW_IDX<=13~'3'),
-         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
-         VariableSet = 'Full')
-
-# Load and clean dataframe containing performance metrics of models trained without dynamic variables and without clinician impressions/treatments at points of transition
-trans.limited.model.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/trans_sens_analysis_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
-  filter(METRIC=='AUC',
-         TUNE_IDX==332,
-         SENS_IDX %in% c(1,4)) %>%
-  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
-         Grouping = case_when(WINDOW_IDX<=6~'1',
-                              WINDOW_IDX<=9~'2',
-                              WINDOW_IDX<=13~'3'),
-         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
-         VariableSet = case_when(SENS_IDX==1~'No dynamic',
-                                 SENS_IDX==4~'No clinician impressions or treatments'))
-
-# Load and clean dataframe containing performance metrics of last-TILBasic carried forward at points of transition
-trans.no.info.AUC.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/trans_no_information_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
-  filter(METRIC=='AUC',
-         TUNE_IDX==332) %>%
-  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
-         Grouping = case_when(WINDOW_IDX<=6~'1',
-                              WINDOW_IDX<=9~'2',
-                              WINDOW_IDX<=13~'3'),
-         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
-         VariableSet = 'Only last available TILBasic')
-
-# Combine transition-point AUC values into single dataframe
-trans.AUC.plot.df <- trans.full.model.AUC.CIs %>%
-  filter(METRIC=='AUC',
-         TUNE_IDX==332) %>%
-  select(TUNE_IDX,ICUDay,THRESHOLD,lo,median,hi,Grouping,VariableSet) %>%
-  rbind(trans.limited.model.AUC.CIs %>%
-          filter(METRIC=='AUC',
-                 TUNE_IDX==332) %>%
-          select(TUNE_IDX,ICUDay,THRESHOLD,lo,median,hi,Grouping,VariableSet)) %>%
-  rbind(trans.no.info.AUC.CIs %>%
-          select(TUNE_IDX,THRESHOLD,ICUDay,lo,median,hi,Grouping,VariableSet)) %>%
-  mutate(VariableSet = factor(VariableSet,levels=c('Full','Only last available TILBasic','No clinician impressions or treatments','No dynamic')))
-
-## Plot and save next-day prediction AUC plots
-# All-point TILBasic>0 AUCs
-all.point.TILBasic.0.AUC <- AUC.plot.df %>%
-  filter(THRESHOLD == 'TILBasic>0') %>%
-  thresh.level.AUC.plot('Next-day TIL(Basic) > 0',Palette4)
-
-# All-point TILBasic>1 AUCs
-all.point.TILBasic.1.AUC <- AUC.plot.df %>%
-  filter(THRESHOLD == 'TILBasic>1') %>%
-  thresh.level.AUC.plot('Next-day TIL(Basic) > 1',Palette4)
-
-# All-point TILBasic>2 AUCs
-all.point.TILBasic.2.AUC <- AUC.plot.df %>%
-  filter(THRESHOLD == 'TILBasic>2') %>%
-  thresh.level.AUC.plot('Next-day TIL(Basic) > 2',Palette4)
-
-# All-point TILBasic>3 AUCs
-all.point.TILBasic.3.AUC <- AUC.plot.df %>%
-  filter(THRESHOLD == 'TILBasic>3') %>%
-  thresh.level.AUC.plot('Next-day TIL(Basic) > 3',Palette4)
-
-# Compile ggplot objects of all-point, threshold-level AUC plots
-all.point.thresh.AUCs <- ggarrange(all.point.TILBasic.0.AUC,
-                                   all.point.TILBasic.1.AUC,
-                                   all.point.TILBasic.2.AUC,
-                                   all.point.TILBasic.3.AUC,
-                                   ncol = 4, nrow = 1)
-
-# Transition-point TILBasic>0 AUCs
-trans.point.TILBasic.0.AUC <- trans.AUC.plot.df %>%
-  filter(THRESHOLD == 'TILBasic>0') %>%
-  thresh.level.AUC.plot('Next-day TIL(Basic) > 0',Palette4)
-
-# Transition-point TILBasic>1 AUCs
-trans.point.TILBasic.1.AUC <- trans.AUC.plot.df %>%
-  filter(THRESHOLD == 'TILBasic>1') %>%
-  thresh.level.AUC.plot('Next-day TIL(Basic) > 1',Palette4)
-
-# Transition-point TILBasic>2 AUCs
-trans.point.TILBasic.2.AUC <- trans.AUC.plot.df %>%
-  filter(THRESHOLD == 'TILBasic>2') %>%
-  thresh.level.AUC.plot('Next-day TIL(Basic) > 2',Palette4)
-
-# Transition-point TILBasic>3 AUCs
-trans.point.TILBasic.3.AUC <- trans.AUC.plot.df %>%
-  filter(THRESHOLD == 'TILBasic>3') %>%
-  thresh.level.AUC.plot('Next-day TIL(Basic) > 3',Palette4)
-
-# Compile ggplot objects of transition-point, threshold-level AUC plots
-trans.point.thresh.AUCs <- ggarrange(trans.point.TILBasic.0.AUC,
-                                     trans.point.TILBasic.1.AUC,
-                                     trans.point.TILBasic.2.AUC,
-                                     trans.point.TILBasic.3.AUC,
-                                     ncol = 4, nrow = 1)
-
-# Create directory for current date and save threshold-level AUC plots for next-day TILBasic prediction
-dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
-ggsave(file.path('../plots',Sys.Date(),'all_point_thresh_AUCs.svg'),all.point.thresh.AUCs,device= svglite,units='in',dpi=600,width=7.405,height = 1.875)
-ggsave(file.path('../plots',Sys.Date(),'trans_point_thresh_AUCs.svg'),trans.point.thresh.AUCs,device= svglite,units='in',dpi=600,width=7.405,height = 1.875)
-
-### Visualise threshold-level calibration slope in prediction of next-day TILBasic
-## Load and prepare dataframes
-# Load and clean dataframe containing performance metrics of full model
-full.model.calib.slope.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/test_set_metrics_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
-  filter(METRIC=='CALIB_SLOPE',
-         TUNE_IDX==332) %>%
-  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
-         Grouping = case_when(WINDOW_IDX<=6~'1',
-                              WINDOW_IDX<=9~'2',
-                              WINDOW_IDX<=13~'3'),
-         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
-         VariableSet = 'Full')
-
-## Plot and save next-day prediction calibration slope plots
-# TILBasic>0 calibration plots
-all.point.TILBasic.0.calib.slope <- full.model.calib.slope.CIs %>%
-  filter(THRESHOLD == 'TILBasic>0') %>%
-  thresh.level.calib.slope.plot('Next-day TIL(Basic) > 0')
-
-# TILBasic>1 calibration plots
-all.point.TILBasic.1.calib.slope <- full.model.calib.slope.CIs %>%
-  filter(THRESHOLD == 'TILBasic>1') %>%
-  thresh.level.calib.slope.plot('Next-day TIL(Basic) > 1')
-
-# TILBasic>2 calibration plots
-all.point.TILBasic.2.calib.slope <- full.model.calib.slope.CIs %>%
-  filter(THRESHOLD == 'TILBasic>2') %>%
-  thresh.level.calib.slope.plot('Next-day TIL(Basic) > 2')
-
-# TILBasic>3 calibration plots
-all.point.TILBasic.3.calib.slope <- full.model.calib.slope.CIs %>%
-  filter(THRESHOLD == 'TILBasic>3') %>%
-  thresh.level.calib.slope.plot('Next-day TIL(Basic) > 3')
-
-# Compile ggplot objects of all-point, threshold-level calibration slope plots
-all.point.thresh.calib.slope <- ggarrange(all.point.TILBasic.0.calib.slope,
-                                          all.point.TILBasic.1.calib.slope,
-                                          all.point.TILBasic.2.calib.slope,
-                                          all.point.TILBasic.3.calib.slope,
-                                          ncol = 2, nrow = 2)
-
-# Create directory for current date and save threshold-level AUC plots for next-day TILBasic prediction
-dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
-ggsave(file.path('../plots',Sys.Date(),'all_point_thresh_calib_slopes.svg'),all.point.thresh.calib.slope,device= svglite,units='in',dpi=600,width=3.75,height = 2.75)
-
-### Visualise threshold-level calibration curves in prediction of next-day TILBasic
-## Load and prepare dataframes
-# Load and clean dataframe containing performance metrics of full model
-full.model.calib.curve.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/test_set_calibration_curves_CI.csv',na.strings = c("NA","NaN","", " ")) %>%
-  filter(TUNE_IDX==332) %>%
-  mutate(ICUDay = sprintf('%.0f',WINDOW_IDX),
-         Grouping = case_when(WINDOW_IDX<=6~'1',
-                              WINDOW_IDX<=9~'2',
-                              WINDOW_IDX<=13~'3'),
-         lo = case_when(lo<0~0,
-                        lo>1~1,
-                        T~lo),
-         median = case_when(median<0~0,
-                            median>1~1,
-                            T~median),
-         hi = case_when(hi<0~0,
-                        hi>1~1,
-                        T~hi),
-         ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX),
-         VariableSet = 'Full',
-         THRESHOLD = str_replace(THRESHOLD,'TILBasic>','Next-day TIL(Basic) > '))
-
-## Plot and save next-day prediction calibration curve plots
-# TILBasic calibration curve
-all.point.TILBasic.calib.curve <- full.model.calib.curve.CIs %>%
-  filter(ICUDay %in% c('1','2','6','13')) %>%
-  ggplot(aes(x=100*PREDPROB)) +
-  facet_wrap(~THRESHOLD, scales = 'free',ncol = 3) +
-  coord_cartesian(ylim = c(0,100),xlim = c(0,100))+
-  geom_segment(x = 0, y = 0, xend = 100, yend = 100,alpha = 0.5,linetype = "dashed",size=.75/.pt, color = 'gray')+
-  geom_ribbon(aes(ymin = 100*lo, ymax = 100*hi, fill = ICUDay), alpha = 0.3,size=.75/.pt,color=NA) +
-  geom_line(aes(y = 100*median, color = ICUDay), alpha = 1, size=1.3/.pt) +
-  scale_x_continuous(expand = expansion(mult = c(.01, .01))) +
-  scale_y_continuous(expand = expansion(mult = c(.01, .01))) +
-  guides(fill=guide_legend(nrow=1,byrow=TRUE),color=guide_legend(nrow=1,byrow=TRUE)) +
-  scale_fill_manual(name = "Day of ICU stay",values = Palette4)+
-  scale_color_manual(name = "Day of ICU stay",values = Palette4)+
-  xlab("Predicted probability (%)") +
-  ylab("Observed probability (%)") +
-  theme_classic(base_family = 'Roboto Condensed') +
-  theme(
-    strip.text = element_text(size=7, color = "black",face = 'bold',margin = margin(b = .5)), 
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.background = element_blank(),
-    panel.spacing = unit(5, 'points'),
-    axis.text.x = element_text(size = 5, color = "black",margin = margin(r = 0)),
-    axis.text.y = element_text(size = 5, color = "black",margin = margin(r = 0)),
-    axis.title.x = element_text(size = 7, color = "black",face = 'bold'),
-    axis.title.y = element_text(size = 7, color = "black",face = 'bold'),
-    strip.background = element_blank(),
-    aspect.ratio = 1,
-    panel.border = element_rect(colour = 'black', fill=NA, size = 1/.pt),
-    plot.margin=grid::unit(c(0,2,0,0), "mm"),
-    legend.position = 'bottom',
-    legend.title = element_text(size = 7, color = "black", face = 'bold'),
-    legend.text=element_text(size=6),
-    axis.line = element_blank(),
-    legend.key.size = unit(1.3/.pt,"line")
-  )
-
-# Create directory for current date and save threshold-level AUC plots for next-day TILBasic prediction
-dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
-ggsave(file.path('../plots',Sys.Date(),'all_point_thresh_calib_curves.svg'),all.point.TILBasic.calib.curve,device= svglite,units='in',dpi=600,width=3.75,height = 3)
 
 ### Visualise threshold-level AUC in prediction of next-day TILBasic for post-hoc analysis
 # Playground mode
-post.hoc.metrics.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/post_hoc_metrics_CI.csv',na.strings = c("NA","NaN","", " "))
+trans.pred.metrics.CIs <- read.csv('../TILTomorrow_model_performance/v2-0/trans_pred_metrics_CI.csv',na.strings = c("NA","NaN","", " "))
 
 ## First, Somers for general stasis, decrease, and increase
-general.post.hoc.Somers.CIs <- post.hoc.metrics.CIs %>%
+general.post.hoc.Somers.CIs <- trans.pred.metrics.CIs %>%
   filter(METRIC=='Somers D',
-         TRANS_THRESHOLD == 'None',
+         # TRANS_THRESHOLD == 'None',
          DROPOUT_VARS %in% c('none','last_TIL_only','clinician_impressions_and_treatments','dynamic')) %>%
   mutate(ICUDay = sprintf('Day %.0f',WINDOW_IDX),
          Grouping = case_when(WINDOW_IDX<=6~'1',
@@ -982,7 +1123,7 @@ general.post.hoc.Somers.CIs <- post.hoc.metrics.CIs %>%
          ICUDay=fct_reorder(factor(ICUDay), WINDOW_IDX)) %>%
   mutate(DROPOUT_VARS = factor(DROPOUT_VARS,levels=c('none','last_TIL_only','clinician_impressions_and_treatments','dynamic'))) %>%
   mutate(across(lo:hi, ~ (abs(.x)+.x)/2))
-general.post.hoc.Somers.CIs <- ggplot() +
+Somers.CIs.plot <- ggplot() +
   geom_ribbon(data=general.post.hoc.Somers.CIs %>% filter(Grouping==1),
               mapping=aes(x=ICUDay, ymin=100*lo, ymax=100*hi, fill=DROPOUT_VARS, group = DROPOUT_VARS),
               alpha=.2) +
@@ -1001,20 +1142,35 @@ general.post.hoc.Somers.CIs <- ggplot() +
   xlab("Day of ICU stay")+
   ylab("Explanation of ordinal variance in next-day TILBasic (%)")+
   scale_y_continuous(breaks = seq(0,100,10)) +
-  scale_x_discrete(breaks = paste('Day',c(1:6,9,13)),limits = paste('Day',c(1:6,9,13))) +
+  scale_x_discrete(expand = expansion(mult = c(.05, .05)))+
+  # scale_x_discrete(breaks = paste('Day',c(1:6,9,13)),limits = paste('Day',c(1:6,9,13))) +
   scale_fill_manual(values = Palette4)+
   scale_color_manual(values = Palette4)+
   guides(fill=guide_legend(title="Model variable set"),
          color=guide_legend(title="Model variable set")) +
   theme_minimal(base_family = 'Roboto Condensed') +
-  facet_grid(cols = vars(TRANSITION_TYPE), scales = 'free_x', switch = 'x', space = 'free_x') +
-  theme(legend.position = 'bottom')
+  # facet_grid(cols = vars(TRANSITION_TYPE), scales = 'free_x', switch = 'x', space = 'free_x') +
+  facet_grid(cols = vars(Grouping), scales = 'free_x', switch = 'x', space = 'free_x') +
+  theme(axis.title.y = element_text(color = "black",face = 'bold'),
+        axis.text.x = element_text(color = 'black'),
+        axis.text.y = element_text(color = 'black'),
+        axis.title.x = element_text(color = "black",face = 'bold'),
+        panel.border = element_blank(),
+        axis.line.x = element_line(size=1/.pt),
+        axis.text = element_text(color='black'),
+        legend.position = 'bottom',
+        panel.spacing = unit(10, 'points'),
+        legend.key.size = unit(1.3/.pt,'line'),
+        legend.title = element_text(color = 'black',face = 'bold'),
+        # legend.text=element_text(size=6),
+        plot.margin=grid::unit(c(0,2,0,0), "mm"),
+        strip.text = element_blank(),
+        legend.margin=margin(0,0,0,0))
 
-trans.threshold.AUC <- post.hoc.metrics.CIs %>%
+trans.threshold.AUC <- trans.pred.metrics.CIs %>%
   filter(METRIC=='AUC',
-         TRANSITION_TYPE == 'All_transitions',
-         DROPOUT_VARS %in% c('none','last_TIL_only','clinician_impressions_and_treatments','dynamic'),
-         str_sub(TRANS_THRESHOLD,6,15) == THRESHOLD) %>%
+         # TRANSITION_TYPE == 'All_transitions',
+         DROPOUT_VARS %in% c('none','last_TIL_only','clinician_impressions_and_treatments','dynamic')) %>%
   mutate(ICUDay = sprintf('Day %.0f',WINDOW_IDX),
          Grouping = case_when(WINDOW_IDX<=6~'1',
                               WINDOW_IDX<=9~'2',
@@ -1037,7 +1193,7 @@ trans.threshold.AUC <- ggplot() +
              mapping=aes(x=ICUDay, y=100*median, color=DROPOUT_VARS),
              position = position_dodge(width = .75),
              size=1) +
-  coord_cartesian(ylim = c(0,100)) +
+  coord_cartesian(ylim = c(50,100)) +
   xlab("Day of ICU stay")+
   ylab("AUC")+
   scale_y_continuous(breaks = seq(0,100,10)) +
@@ -1157,55 +1313,6 @@ trans.Somers.D.plot.df <- trans.TIL.Basic.Somers.D.CIs %>%
           select(TUNE_IDX,ICUDay,lo,median,hi,Grouping,VariableSet)) %>%
   mutate(VariableSet = factor(VariableSet,levels=c('Full','Only last available TILBasic','No clinician impressions or treatments','No dynamic'))) %>%
   mutate(across(lo:hi, ~ (abs(.x)+.x)/2))
-
-## Plot and save TILBasic explanation over days of ICU stay at all points
-# Create ggplot object
-all.point.Somers.D.plot <- Somers.D.plot.df %>% ggplot() +
-  geom_line(data=Somers.D.plot.df %>% filter(Grouping==1),
-            mapping=aes(x=ICUDay, y=100*median, color=VariableSet, group = VariableSet),
-            lwd=1.3/.pt) +
-  geom_ribbon(data=Somers.D.plot.df %>% filter(Grouping==1),
-              mapping=aes(x=ICUDay, ymin=100*lo, ymax=100*hi, fill=VariableSet, group = VariableSet),
-              alpha=.2) +
-  geom_point(data=Somers.D.plot.df %>% filter(Grouping!=1),
-             mapping=aes(x=ICUDay, y=100*median, color=VariableSet),
-             position = position_dodge(width = .75),
-             size=1) +
-  geom_errorbar(data=Somers.D.plot.df %>% filter(Grouping!=1),
-                mapping=aes(x=ICUDay, ymin=100*lo, ymax=100*hi, color=VariableSet),
-                position = position_dodge(width = .75),
-                width=.35) +
-  coord_cartesian(ylim = c(0,100)) +
-  xlab("Day of ICU stay")+
-  ylab("Explanation of ordinal variance in next-day TILBasic (%)")+
-  scale_y_continuous(breaks = seq(0,100,10)) +
-  scale_fill_manual(values = Palette4)+
-  scale_color_manual(values = Palette4)+
-  guides(fill=guide_legend(title="Model variable set"),
-         color=guide_legend(title="Model variable set")) +
-  theme_minimal(base_family = 'Roboto Condensed') +
-  facet_grid(cols = vars(Grouping), scales = 'free_x', switch = 'x', space = 'free_x') +
-  theme(
-    axis.text.x = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
-    axis.text.y = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
-    axis.title.x = element_text(size = 7, color = "black",face = 'bold'),
-    axis.title.y = element_text(size = 7, color = "black",face = 'bold',margin = margin(0,0,0,0)),
-    panel.border = element_blank(),
-    axis.line.x = element_line(size=1/.pt),
-    axis.text = element_text(color='black'),
-    legend.position = 'bottom',
-    panel.spacing = unit(5, 'points'),
-    legend.key.size = unit(1.3/.pt,'line'),
-    legend.title = element_text(size = 7, color = "black", face = 'bold'),
-    legend.text=element_text(size=6),
-    plot.margin=grid::unit(c(0,2,0,0), "mm"),
-    strip.text = element_blank(),
-    legend.margin=margin(0,0,0,0)
-  )
-
-# Create directory for current date and save TILBasic explanation over days of ICU stay at all points plot
-dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
-ggsave(file.path('../plots',Sys.Date(),'all_point_somers.svg'),all.point.Somers.D.plot,device= svglite,units='in',dpi=600,width=3.7,height = 2.5)
 
 ## Plot and save TILBasic explanation over days of ICU stay at all points
 # Create ggplot object
