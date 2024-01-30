@@ -8,6 +8,7 @@
 # I. Initialisation
 # II. Create a full dictionary of tokens for exploration
 # III. Categorize tokens from each patient's ICU stay
+# IV. Calculate counts of different variable types for manuscript
 
 ### I. Initialisation
 # Fundamental libraries
@@ -51,6 +52,10 @@ form_TIL_dir = os.path.join(dir_CENTER_TBI,'FormattedTIL')
 
 # Define directory for storing tokens for each partition
 tokens_dir = '../tokens'
+
+# Define and create directory to store formatted tables for manuscript
+table_dir = os.path.join('../','tables')
+os.makedirs(table_dir,exist_ok=True)
 
 ## Load fundamental information for variable tokenisation
 # Load cross-validation splits of study population
@@ -423,3 +428,56 @@ for curr_dict_idx in tqdm(range(token_dict_file_info_df.shape[0]),'Iterating thr
     
     # Save token incidence information into current fold directory
     token_patient_incidences.to_pickle(os.path.join(fold_dir,'TILTomorrow_token_incidences_per_patient.pkl'))
+
+### IV. Calculate counts of different variable types for manuscript
+## Load and prepare formatted, full token dictionary
+# Load formatted full token dictionary
+full_token_keys = pd.read_excel(os.path.join(tokens_dir,'TILTomorrow_full_token_keys_'+VERSION+'.xlsx'))
+full_token_keys.Token = full_token_keys.Token.fillna('')
+full_token_keys.BaseToken = full_token_keys.BaseToken.fillna('')
+
+# Remove blank and unknown tokens
+full_token_keys = full_token_keys[(full_token_keys.Token!='<unk>')&(full_token_keys.Token!='')].reset_index(drop=True)
+
+# Reduce token-specific information down to variable-specific information
+base_token_keys = full_token_keys.drop(columns=['Token','Value','OrderIdx','Missing','UnknownNonMissing']).drop_duplicates(ignore_index=True)
+
+# Create a new column for including all variables
+base_token_keys['Overall'] = True
+
+# Create a new column designating dynamic variables
+base_token_keys['Dynamic'] = ~base_token_keys['Baseline']
+
+# Collapse ICU interventions and physician impressions into single category
+base_token_keys['InterventionsImpressions'] = base_token_keys['ICUIntervention'] | base_token_keys['ClinicianInput']
+
+# Load variable types from legacy model
+legacy_type_keys = pd.read_excel(os.path.join(tokens_dir,'legacy_full_token_keys.xlsx'))
+legacy_type_keys = legacy_type_keys[['BaseToken','Type']].drop_duplicates(ignore_index=True).rename(columns={'Type':'NewType'})
+
+# Merge variable types onto variable list
+base_token_keys = base_token_keys.merge(legacy_type_keys,how='left')
+
+# Create imputations of missing information in new variable column
+base_token_keys['NewType'][base_token_keys['NewType'].isna() & (base_token_keys['Type']=='Brain Imaging')] = 'Brain Imaging'
+base_token_keys['NewType'][base_token_keys['NewType'].isna() & (base_token_keys['BaseToken'].str.contains('TIL') | base_token_keys['BaseToken'].str.contains('Therapy') | base_token_keys['BaseToken'].str.contains('Ongoing') | (base_token_keys['Type']=='Medications'))] = 'ICU Medications and Management'
+base_token_keys['NewType'][base_token_keys['NewType'].isna() & (base_token_keys['Type'].isin(['Protein Biomarkers','Labs']))] = 'Labs'
+
+# Create copy of dataframe for manual fixes
+base_token_keys.to_excel(os.path.join(tokens_dir,'TILTomorrow_pre_filled_variable_types_'+VERSION+'.xlsx'))
+
+# Load manually fixed type translations
+base_token_keys = pd.read_excel(os.path.join(tokens_dir,'TILTomorrow_variable_types_'+VERSION+'.xlsx'),na_values = ["NA","NaN","NaT"," ", ""])
+
+## Count combinations of variable types
+# Convert variable keys to long form
+long_base_token_keys = base_token_keys[['NewType','BaseToken','Overall','Baseline','Dynamic','InterventionsImpressions']].melt(id_vars=['NewType','BaseToken'],var_name='Subtype',value_name='Marker')
+
+# Filter to true assignment per subtype
+long_base_token_keys = long_base_token_keys[long_base_token_keys.Marker].reset_index(drop=True)
+
+# Count number of variables per NewType-Subtype combination
+variable_type_counts = long_base_token_keys.groupby(['NewType','Subtype'],as_index=False).BaseToken.nunique().pivot(columns='Subtype',index='NewType').reset_index().droplevel(0, axis=1).rename(columns={'':'NewType'}).fillna(0)
+
+# Save variable combination count results to table dataframe as CSV for easy formatting
+variable_type_counts.to_csv(os.path.join(table_dir,'variable_type_counts.csv'),index=False)
