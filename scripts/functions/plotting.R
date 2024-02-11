@@ -119,7 +119,7 @@ thresh.level.AUC.plot <- function(plot.df,title,color.palette){
                position = position_dodge(width = .75),
                size=.75) +
     facet_grid(cols = vars(Grouping), scales = 'free_x', switch = 'x', space = 'free_x') +
-    coord_cartesian(ylim = c(0.23,1)) +
+    coord_cartesian(ylim = c(0.4363810,1)) +
     scale_fill_manual(values = color.palette)+
     scale_color_manual(values = color.palette)+
     xlab("Day of ICU stay")+
@@ -169,12 +169,12 @@ thresh.level.calib.slope.plot <- function(plot.df,title){
                position = position_dodge(width = .75),
                size=.75) +
     facet_grid(cols = vars(Grouping), scales = 'free_x', switch = 'x', space = 'free_x') +
-    coord_cartesian(ylim = c(0.5423,1.59)) +
+    coord_cartesian(ylim = c(0,1.59)) +
     xlab("Day of ICU stay")+
     ylab("Calibration slope")+
     ggtitle(title)+
     scale_x_discrete(expand = expansion(mult = c(.05, .05)))+
-    scale_y_continuous(breaks = seq(0.6,1.5,.2), expand = c(0,0)) +
+    scale_y_continuous(breaks = seq(0,1.5,.5), expand = c(0,0)) +
     theme_minimal(base_family = 'Roboto Condensed') +
     theme(
       axis.text.x = element_text(size = 6, color = "black",margin = margin(0,0,0,0)),
