@@ -104,7 +104,7 @@ all.point.thresh.calib.slope <- ggarrange(all.point.TILBasic.0.calib.slope,
 
 # Create directory for current date and save threshold-level AUC plots for next-day TILBasic prediction
 dir.create(file.path('../plots',Sys.Date()),showWarnings = F,recursive = T)
-ggsave(file.path('../plots',Sys.Date(),'all_point_thresh_calib_slopes.svg'),all.point.thresh.calib.slope,device= svglite,units='in',dpi=600,width=3.75,height = 2.75)
+ggsave(file.path('../plots',Sys.Date(),'all_point_thresh_calib_slopes.svg'),all.point.thresh.calib.slope,device= svglite,units='in',dpi=600,width=3.71,height = 2.75)
 
 ### III. Figure 1d. Threshold-level calibration curves in prediction of next-day TILBasic
 ## Load and prepare dataframes
