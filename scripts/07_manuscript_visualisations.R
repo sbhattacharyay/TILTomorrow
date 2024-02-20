@@ -13,6 +13,8 @@
 # VI. Figure 3a. Threshold-level AUC in prediction of next-day TILBasic
 # VII. Figure 3b. AUC in prediction of increase/decrease in next-day TILBasic
 # VIII. Figure 3c. Somers D in prediction of increase/stasis/decrease in next-day TILBasic
+# IX. Supplementary Figure S2. Distribution of TILBasic over days of ICU stay
+
 
 
 # Visualise the distribution of TILBasic over days of ICU stay
