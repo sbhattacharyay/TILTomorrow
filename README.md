@@ -28,12 +28,12 @@ All of the code used in this work can be found in the `./scripts` directory as P
   <li><h4><a href="scripts/01b_calculate_summary_stats.py">Calculate summary statistics of study population</a></h4> In this <code>.py</code> file, we characterise the study dataset by calculating summary statistics for the manuscript. </li>
 </ol>
 
-### 2. [Partition CENTER-TBI for stratified, repeated k-fold cross-validation](scripts/02_partition_for_cv.py)
+### 2. Tokenise all CENTER-TBI variables and place into discretised ICU stay time windows
 
 <ol type="a">
-  <li><h4><a href="scripts/01a_prepare_study_sample.py">Extract and prepare study sample from CENTER-TBI dataset</a></h4> In this <code>.py</code> file, we extract the study sample from the CENTER-TBI dataset and filter patients by our study criteria. We also clean and format information pertaining to the <a href="https://doi.org/10.1089/neu.2023.0377">Therapy Intensity Level (TIL)</a> scores. We also create 100 partitions for 20-repeats of 5-fold cross-validation, and save the splits into a dataframe for subsequent scripts.</li>
-  <li><h4><a href="scripts/01b_calculate_summary_stats.py">Calculate summary statistics of study population</a></h4> In this <code>.py</code> file, we characterise the study dataset by calculating summary statistics for the manuscript. </li>
-  <li><h4><a href="scripts/01b_calculate_summary_stats.py">Calculate summary statistics of study population</a></h4> In this <code>.py</code> file, we characterise the study dataset by calculating summary statistics for the manuscript. </li>
+  <li><h4><a href="scripts/02a_format_CENTER_TBI_data_for_tokenisation.py">Format CENTER-TBI data for tokenisation</a></h4> In this <code>.py</code> file, we extract all heterogeneous types of variables from CENTER-TBI and fix erroneous timestamps and formats.</li>
+  <li><h4><a href="scripts/02b_convert_ICU_stays_into_tokenised_sets.py">Convert full patient information from ICU stays into tokenised sets</a></h4> In this <code>.py</code> file, we convert all CENTER-TBI variables into tokens depending on variable type and compile full dictionaries of tokens across the full dataset. This is run, with multi-array indexing, on the HPC using a <a href="scripts/02b_convert_ICU_stays_into_tokenised_sets.sh">bash script</a>. </li>
+  <li><h4><a href="scripts/02c_characterise_tokens.py">Create a dictionary of all tokens in study and characterise tokens in each patient's ICU stay</a></h4> In this <code>.py</code> file, we categorise and characterise the tokens in each patient's ICU stay in our study. </li>
 </ol>
 
 ### 3. Tokenise all CENTER-TBI variables and place into discretised ICU stay time windows
