@@ -1,4 +1,4 @@
-#### Master Script 06a: Calculate testing set calibration and discrimination performance metrics at focused transition points ####
+#### Master Script 06a: Calculate testing set calibration and discrimination performance metrics for prediction of transitions in TIL(Basic) ####
 #
 # Shubhayu Bhattacharyay
 # University of Cambridge

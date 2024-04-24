@@ -1,4 +1,4 @@
-#### Master Script 06d: Compile testing set performance results for statistical inference of transition prediction analysis TILTomorrow models ####
+#### Master Script 06b: Compile testing set performance results for statistical inference of transition prediction analysis TILTomorrow models ####
 #
 # Shubhayu Bhattacharyay
 # University of Cambridge
